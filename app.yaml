@@ -1,0 +1,20 @@
+runtime: nodejs20
+
+service: default
+
+env_variables:
+  NODE_ENV: production
+
+automatic_scaling:
+  min_instances: 1
+  max_instances: 10
+  target_cpu_utilization: 0.6
+
+handlers:
+  - url: /_nuxt
+    static_dir: .output/public/_nuxt
+    secure: always
+
+  - url: /.*
+    script: auto
+    secure: always

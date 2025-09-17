@@ -1,0 +1,21 @@
+{
+  "name": "saintdong-platform",
+  "version": "1.0.0",
+  "description": "企業內部管理平台",
+  "private": true,
+  "scripts": {
+    "build": "nuxt prepare && nuxt build",
+    "dev": "NODE_OPTIONS=--no-warnings nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "",
+    "start": "node .output/server/index.mjs"
+  },
+  "packageManager": "yarn@1.22.19",
+  "dependencies": {
+    "@nuxtjs/tailwindcss": "^6.8.4",
+    "nuxt": "^3.7.4",
+    "multer": "^1.4.5-lts.1",
+    "@types/multer": "^1.4.8"
+  }
+}

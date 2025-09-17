@@ -1,0 +1,73 @@
+<template>
+  <div class="min-h-screen bg-gray-50">
+    <!-- 簡單的頂部導航 -->
+    <nav class="bg-white shadow-sm border-b">
+      <div class="max-w-6xl mx-auto px-4 py-4">
+        <div class="flex justify-between items-center">
+          <!-- Logo -->
+          <div class="flex items-center space-x-3">
+            <SaintDongLogo :size="100" variant="blue" />
+            <span class="text-lg font-semibold text-gray-800"
+              >企業管理平台</span
+            >
+          </div>
+
+          <!-- 部門切換 -->
+          <div class="flex space-x-1">
+            <NuxtLink
+              to="/"
+              class="px-4 py-2 rounded-md text-sm font-medium"
+              :class="
+                isActive('/')
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              "
+            >
+              財務部
+            </NuxtLink>
+            <NuxtLink
+              to="/hr"
+              class="px-4 py-2 rounded-md text-sm font-medium"
+              :class="
+                isActive('/hr')
+                  ? 'bg-green-100 text-green-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              "
+            >
+              管理部
+            </NuxtLink>
+            <NuxtLink
+              to="/mis"
+              class="px-4 py-2 rounded-md text-sm font-medium"
+              :class="
+                isActive('/mis')
+                  ? 'bg-purple-100 text-purple-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              "
+            >
+              MIS部
+            </NuxtLink>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- 主要內容 -->
+    <main>
+      <slot />
+    </main>
+  </div>
+</template>
+
+<script setup>
+import { useRoute } from 'vue-router';
+
+const route = useRoute();
+
+const isActive = (path) => {
+  if (path === '/') {
+    return route.path === '/';
+  }
+  return route.path.startsWith(path);
+};
+</script>
