@@ -1,5 +1,138 @@
 <template>
   <div class="py-12 px-4 sm:px-6 lg:px-8">
+    <!-- 成功/失敗彈窗通知 -->
+    <div
+      v-if="showNotification"
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      @click="closeNotification"
+    >
+      <div
+        class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 transform transition-all"
+        :class="notificationType === 'error' ? 'animate-pulse' : ''"
+        @click.stop
+      >
+        <div class="p-6">
+          <!-- 圖示 -->
+          <div
+            class="flex items-center justify-center w-12 h-12 mx-auto mb-4 rounded-full"
+            :class="
+              notificationType === 'success' ? 'bg-green-100' : 'bg-red-100'
+            "
+          >
+            <svg
+              v-if="notificationType === 'success'"
+              class="w-6 h-6 text-green-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 13l4 4L19 7"
+              ></path>
+            </svg>
+            <svg
+              v-else
+              class="w-6 h-6 text-red-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
+          </div>
+
+          <!-- 標題 -->
+          <h3 class="text-lg font-medium text-gray-900 text-center mb-2">
+            {{ notificationType === 'success' ? '上傳成功！' : '上傳失敗' }}
+          </h3>
+
+          <!-- 訊息 -->
+          <p class="text-sm text-gray-600 text-center mb-4">
+            {{ notificationMessage }}
+          </p>
+
+          <!-- 詳細資訊（成功時顯示） -->
+          <div
+            v-if="notificationType === 'success' && notificationDetails"
+            class="bg-gray-50 rounded-lg p-4 mb-4"
+          >
+            <h4 class="font-medium text-gray-900 mb-2">處理結果：</h4>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span class="font-medium">總行數:</span>
+                {{ notificationDetails.excelStats.totalRows }}
+              </div>
+              <div>
+                <span class="font-medium">有效行數:</span>
+                {{ notificationDetails.excelStats.validRows }}
+              </div>
+              <div>
+                <span class="font-medium">插入成功:</span>
+                {{ notificationDetails.databaseStats.insertedCount }}
+              </div>
+              <div>
+                <span class="font-medium">跳過重複:</span>
+                {{ notificationDetails.databaseStats.skippedCount }}
+              </div>
+            </div>
+          </div>
+
+          <!-- 錯誤詳情（失敗時顯示） -->
+          <div
+            v-if="
+              notificationType === 'error' &&
+              notificationErrors &&
+              notificationErrors.length > 0
+            "
+            class="bg-red-50 rounded-lg p-4 mb-4"
+          >
+            <h4 class="font-medium text-red-900 mb-2">錯誤詳情：</h4>
+            <ul class="text-sm text-red-700 space-y-1">
+              <li
+                v-for="error in notificationErrors.slice(0, 3)"
+                :key="error"
+                class="flex items-start"
+              >
+                <span
+                  class="inline-block w-1 h-1 bg-red-500 rounded-full mt-2 mr-2 flex-shrink-0"
+                ></span>
+                {{ error }}
+              </li>
+              <li
+                v-if="notificationErrors.length > 3"
+                class="text-red-600 font-medium"
+              >
+                還有 {{ notificationErrors.length - 3 }} 個錯誤...
+              </li>
+            </ul>
+          </div>
+
+          <!-- 按鈕 -->
+          <div class="flex justify-center">
+            <button
+              @click="closeNotification"
+              class="px-6 py-2 rounded-md text-sm font-medium transition-colors"
+              :class="
+                notificationType === 'success'
+                  ? 'bg-green-600 text-white hover:bg-green-700'
+                  : 'bg-red-600 text-white hover:bg-red-700'
+              "
+            >
+              確定
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="max-w-2xl mx-auto">
       <!-- 財務部門標題 -->
       <div class="text-center mb-8">
@@ -38,7 +171,7 @@
             <input
               ref="fileInput"
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx,.xls,.csv"
               @change="handleFileSelect"
               class="hidden"
             />
@@ -61,7 +194,7 @@
                 />
               </svg>
               <p class="mt-2 text-sm text-gray-600">點擊選擇檔案或拖拽到這裡</p>
-              <p class="text-xs text-gray-500">支援 .xlsx, .xls 格式</p>
+              <p class="text-xs text-gray-500">支援 .xlsx, .xls, .csv 格式</p>
             </div>
             <div v-else class="text-left">
               <div class="flex items-center justify-between">
@@ -189,15 +322,64 @@
               >
                 {{ uploadResult.message }}
               </p>
-              <p
-                v-if="uploadResult.success && uploadResult.filePath"
-                class="mt-1 text-xs"
-                :class="
-                  uploadResult.success ? 'text-green-700' : 'text-red-700'
-                "
+              <!-- 詳細處理結果 -->
+              <div
+                v-if="uploadResult.success && uploadResult.data"
+                class="mt-3 text-xs text-green-700"
               >
-                檔案已儲存至: {{ uploadResult.filePath }}
-              </p>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <span class="font-medium">檔案名稱:</span>
+                    {{ uploadResult.data.fileName }}
+                  </div>
+                  <div>
+                    <span class="font-medium">檔案大小:</span>
+                    {{ formatFileSize(uploadResult.data.fileSize) }}
+                  </div>
+                  <div>
+                    <span class="font-medium">總行數:</span>
+                    {{ uploadResult.data.excelStats.totalRows }}
+                  </div>
+                  <div>
+                    <span class="font-medium">有效行數:</span>
+                    {{ uploadResult.data.excelStats.validRows }}
+                  </div>
+                  <div>
+                    <span class="font-medium">跳過行數:</span>
+                    {{ uploadResult.data.excelStats.skippedRows }}
+                  </div>
+                  <div>
+                    <span class="font-medium">插入成功:</span>
+                    {{ uploadResult.data.databaseStats.insertedCount }}
+                  </div>
+                  <div>
+                    <span class="font-medium">跳過重複:</span>
+                    {{ uploadResult.data.databaseStats.skippedCount }}
+                  </div>
+                  <div>
+                    <span class="font-medium">錯誤數量:</span>
+                    {{ uploadResult.data.databaseStats.errorCount }}
+                  </div>
+                </div>
+                <div
+                  v-if="
+                    uploadResult.data.errors &&
+                    uploadResult.data.errors.length > 0
+                  "
+                  class="mt-2"
+                >
+                  <span class="font-medium text-red-600">錯誤詳情:</span>
+                  <ul class="list-disc list-inside mt-1">
+                    <li
+                      v-for="error in uploadResult.data.errors"
+                      :key="error"
+                      class="text-red-600"
+                    >
+                      {{ error }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -213,18 +395,35 @@ const selectedFile = ref(null);
 const isUploading = ref(false);
 const uploadResult = ref(null);
 
+// 彈窗通知相關狀態
+const showNotification = ref(false);
+const notificationType = ref('success'); // 'success' 或 'error'
+const notificationMessage = ref('');
+const notificationDetails = ref(null);
+const notificationErrors = ref([]);
+
 const handleFileSelect = (event) => {
   const file = event.target.files[0];
   if (file) {
     const allowedTypes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
+      'text/csv',
+      'application/csv',
     ];
 
-    if (!allowedTypes.includes(file.type)) {
+    const allowedExtensions = ['.xlsx', '.xls', '.csv'];
+    const fileExtension = file.name
+      .toLowerCase()
+      .substring(file.name.lastIndexOf('.'));
+
+    if (
+      !allowedTypes.includes(file.type) &&
+      !allowedExtensions.includes(fileExtension)
+    ) {
       uploadResult.value = {
         success: false,
-        message: '請選擇 Excel 檔案 (.xlsx 或 .xls)',
+        message: '請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)',
       };
       return;
     }
@@ -266,15 +465,28 @@ const uploadFile = async () => {
       body: formData,
     });
 
+    // 顯示成功彈窗
+    showSuccessNotification(
+      response.message || '檔案上傳成功！',
+      response.data
+    );
+
     uploadResult.value = {
       success: true,
-      message: '檔案上傳成功！',
-      filePath: response.filePath,
+      message: response.message || '檔案上傳成功！',
+      data: response.data,
     };
 
     clearFile();
   } catch (error) {
     console.error('上傳失敗:', error);
+
+    // 顯示失敗彈窗
+    showErrorNotification(
+      error.data?.message || '上傳失敗，請稍後再試',
+      error.data?.errors || []
+    );
+
     uploadResult.value = {
       success: false,
       message: error.data?.message || '上傳失敗，請稍後再試',
@@ -282,5 +494,31 @@ const uploadFile = async () => {
   } finally {
     isUploading.value = false;
   }
+};
+
+// 顯示成功通知
+const showSuccessNotification = (message, details) => {
+  notificationType.value = 'success';
+  notificationMessage.value = message;
+  notificationDetails.value = details;
+  notificationErrors.value = [];
+  showNotification.value = true;
+};
+
+// 顯示錯誤通知
+const showErrorNotification = (message, errors = []) => {
+  notificationType.value = 'error';
+  notificationMessage.value = message;
+  notificationDetails.value = null;
+  notificationErrors.value = errors;
+  showNotification.value = true;
+};
+
+// 關閉通知
+const closeNotification = () => {
+  showNotification.value = false;
+  notificationMessage.value = '';
+  notificationDetails.value = null;
+  notificationErrors.value = [];
 };
 </script>

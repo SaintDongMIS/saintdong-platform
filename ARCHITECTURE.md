@@ -20,12 +20,19 @@
 
 ### 專案結構
 
+本專案採用 Nuxt.js 3 的整合式架構，前端與後端 API 都在同一個專案中開發，簡化了開發與部署流程。
+
 ```
 saintdong-platform/
-├── frontend/          # Nuxt.js 3 前端應用
-├── backend/           # Node.js API 後端服務
-├── shared/            # 共用類型定義與工具函數
-└── deploy/            # GCP App Engine 部署配置
+├── server/            # Nuxt 3 後端 API (Nitro)
+│   ├── api/           # API 路由端點
+│   ├── services/      # 業務邏輯服務
+│   └── config/        # 設定檔
+├── pages/             # Nuxt 3 前端頁面
+├── components/        # Vue 組件
+├── assets/            # 靜態資源
+├── nuxt.config.ts     # Nuxt 設定檔
+└── app.yaml           # GCP App Engine 部署配置
 ```
 
 ## 前端架構 (Nuxt.js 3)
@@ -55,36 +62,40 @@ frontend/
 └── types/            # 類型定義
 ```
 
-## 後端架構 (Node.js)
+## 後端架構 (Nuxt 3 Nitro Server)
+
+後端 API 基於 Nuxt 3 內建的 Nitro 伺服器引擎，採用檔案系統路由，開發體驗與前端保持一致。
 
 ### API 設計
 
-```
-POST /api/upload/excel     # Excel 檔案上傳
-GET  /api/files           # 取得檔案列表
-GET  /api/files/:id       # 取得特定檔案資訊
-DELETE /api/files/:id     # 刪除檔案
-```
+API 端點定義在 `server/api/` 目錄下，例如：
+
+- `POST /api/upload`: 處理檔案上傳
+- `POST /api/create-table`: 建立資料表
+- `POST /api/update-table`: 更新資料表結構
+- `GET /api/table-info`: 取得資料表資訊
 
 ### 核心服務
 
-- **檔案上傳處理**: 驗證檔案格式與大小
-- **Cloud Storage 整合**: 檔案儲存與管理
-- **資料庫操作**: 檔案元資料管理
-- **錯誤處理**: 統一的錯誤回應機制
+- **檔案上傳處理**: 驗證並解析 Excel 檔案。
+- **資料庫操作**: 透過 `DatabaseService` 執行 SQL 操作。
+- **資料表定義**: 透過 `TableDefinitionService` 統一管理資料表 Schema。
+- **錯誤處理**: 統一的錯誤回應機制。
 
 ### 檔案結構
 
 ```
-backend/
-├── src/
-│   ├── controllers/  # 控制器
-│   ├── services/     # 業務邏輯
-│   ├── models/       # 資料模型
-│   ├── middleware/   # 中介軟體
-│   └── utils/        # 工具函數
-├── routes/           # API 路由
-└── config/           # 配置檔案
+server/
+├── api/              # API 路由端點
+│   ├── upload.post.ts
+│   └── ...
+├── services/         # 核心業務邏輯
+│   ├── DatabaseService.ts
+│   ├── ExcelService.ts
+│   └── TableDefinitionService.ts
+└── config/           # 設定檔
+    ├── database.ts
+    └── bankCodes.json
 ```
 
 ## 資料流設計
