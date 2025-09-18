@@ -48,13 +48,13 @@ saintdong-platform/
 
 ```bash
 # 安裝依賴
-npm install
+yarn install
 
 # 啟動開發環境
-npm run dev
+yarn dev
 
 # 建置生產版本
-npm run build
+yarn build
 ```
 
 ## 檔案上傳功能
