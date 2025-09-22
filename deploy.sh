@@ -25,11 +25,12 @@ fi
 # 建構
 yarn build
 
-# 部署
-gcloud app deploy app.yaml --quiet
+# 部署到指定專案
+echo "🚀 部署到專案: annular-welder-684"
+gcloud app deploy app.yaml --project=annular-welder-684 --quiet
 
 # 獲取應用程式 URL
-APP_URL=$(gcloud app browse --no-launch-browser)
+APP_URL=$(gcloud app browse --project=annular-welder-684 --no-launch-browser)
 echo ""
 echo "🎉 部署成功！"
 echo "📱 應用程式 URL: $APP_URL"

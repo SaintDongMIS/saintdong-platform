@@ -11,13 +11,16 @@ const dbConfig = {
     encrypt: false, // 本地網路不需要加密
     trustServerCertificate: true, // 信任伺服器憑證
     enableArithAbort: true,
-    connectionTimeout: 30000, // 30秒連接超時
-    requestTimeout: 30000, // 30秒請求超時
+    connectionTimeout: 60000, // 60秒連接超時 (遠端連接需要更長時間)
+    requestTimeout: 60000, // 60秒請求超時
+    validateBulkLoadParameters: false,
+    useUTC: false,
   },
   pool: {
     max: 10, // 最大連接數
     min: 0, // 最小連接數
     idleTimeoutMillis: 30000, // 空閒超時
+    acquireTimeoutMillis: 60000, // 獲取連接超時
   },
 };
 
@@ -26,23 +29,47 @@ let pool: sql.ConnectionPool | null = null;
 
 // 取得資料庫連接池
 export async function getConnectionPool() {
-  if (!pool) {
+  if (!pool || !pool.connected) {
     try {
+      // 如果舊的連接池存在但未連接，先關閉它
+      if (pool && !pool.connected) {
+        await pool.close();
+        pool = null;
+      }
+
+      console.log('🔗 嘗試連接資料庫:', {
+        server: dbConfig.server,
+        port: dbConfig.port,
+        database: dbConfig.database,
+        user: dbConfig.user,
+      });
+
       pool = new sql.ConnectionPool(dbConfig);
       await pool.connect();
       console.log('✅ SQL Server 連接成功');
     } catch (err) {
-      const error = err as { code?: string; message: string };
+      const error = err as { code?: string; message: string; errno?: string };
       console.error('❌ SQL Server 連接失敗:', {
         code: error.code,
+        errno: error.errno,
         message: error.message,
         server: dbConfig.server,
         port: dbConfig.port,
         database: dbConfig.database,
         user: dbConfig.user,
       });
-      // 拋出更明確的錯誤，方便 API 層捕捉
-      throw new Error(`Database connection failed: ${error.message}`);
+
+      // 根據錯誤類型提供更詳細的錯誤訊息
+      let errorMessage = `Database connection failed: ${error.message}`;
+      if (error.code === 'ECONNREFUSED' || error.errno === 'ECONNREFUSED') {
+        errorMessage = `無法連接到資料庫伺服器 ${dbConfig.server}:${dbConfig.port}。請檢查 VPN 連接和防火牆設定。`;
+      } else if (error.code === 'ETIMEDOUT' || error.errno === 'ETIMEDOUT') {
+        errorMessage = `資料庫連接超時。請檢查網路連通性和 VPN 狀態。`;
+      } else if (error.message.includes('Login failed')) {
+        errorMessage = `資料庫登入失敗。請檢查使用者名稱和密碼。`;
+      }
+
+      throw new Error(errorMessage);
     }
   }
   return pool;
