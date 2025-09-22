@@ -1,12 +1,12 @@
 import sql from 'mssql';
-
+//TODO : todo gcp vpn連進DB
 // SQL Server 連接配置
-const dbConfig: sql.config = {
-  server: '192.168.8.239',
-  port: 1433,
-  user: 'sa',
-  password: 'dsc@23265946',
-  database: 'APIsync',
+const dbConfig = {
+  server: process.env.DB_SERVER || '192.168.8.239',
+  port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 1433,
+  user: process.env.DB_USER || 'sa',
+  password: process.env.DB_PASSWORD || 'dsc@23265946',
+  database: process.env.DB_DATABASE || 'APIsync',
   options: {
     encrypt: false, // 本地網路不需要加密
     trustServerCertificate: true, // 信任伺服器憑證
@@ -25,15 +25,24 @@ const dbConfig: sql.config = {
 let pool: sql.ConnectionPool | null = null;
 
 // 取得資料庫連接池
-export async function getConnectionPool(): Promise<sql.ConnectionPool> {
+export async function getConnectionPool() {
   if (!pool) {
     try {
       pool = new sql.ConnectionPool(dbConfig);
       await pool.connect();
       console.log('✅ SQL Server 連接成功');
-    } catch (error) {
-      console.error('❌ SQL Server 連接失敗:', error);
-      throw error;
+    } catch (err) {
+      const error = err as { code?: string; message: string };
+      console.error('❌ SQL Server 連接失敗:', {
+        code: error.code,
+        message: error.message,
+        server: dbConfig.server,
+        port: dbConfig.port,
+        database: dbConfig.database,
+        user: dbConfig.user,
+      });
+      // 拋出更明確的錯誤，方便 API 層捕捉
+      throw new Error(`Database connection failed: ${error.message}`);
     }
   }
   return pool;

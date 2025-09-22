@@ -1,7 +1,7 @@
 import multer from 'multer';
 import { promises as fs } from 'fs';
-import path from 'path';
-import os from 'os';
+import * as path from 'path';
+import * as os from 'os';
 import { defineEventHandler, createError } from 'h3';
 import { ExcelService } from '../services/ExcelService';
 import { DatabaseService } from '../services/DatabaseService';

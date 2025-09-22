@@ -4,6 +4,11 @@ service: default
 
 env_variables:
   NODE_ENV: production
+  DB_SERVER: '111.235.249.186'
+  DB_PORT: '1433'
+  DB_USER: 'sa'
+  DB_PASSWORD: 'dsc@23265946'
+  DB_DATABASE: 'APIsync'
 
 handlers:
   - url: /.*

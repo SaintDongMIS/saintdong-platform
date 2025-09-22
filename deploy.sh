@@ -34,4 +34,8 @@ echo ""
 echo "🎉 部署成功！"
 echo "📱 應用程式 URL: $APP_URL"
 
-echo "✅ 部署完成"
+# 開啟瀏覽器
+if command -v open &> /dev/null; then
+    echo "🌐 正在開啟瀏覽器..."
+    open $APP_URL
+fi
