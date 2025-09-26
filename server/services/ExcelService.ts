@@ -135,6 +135,12 @@ export class ExcelService {
       }
 
       const processedRow = this.processRow(row, headers);
+      // 檢查是否因為表單狀態被跳過
+      if (processedRow === null) {
+        skippedRows++;
+        continue;
+      }
+
       processedRows.push(processedRow);
     }
 
@@ -202,6 +208,17 @@ export class ExcelService {
       const cleanedHeader = this.cleanHeaderName(header);
       rowObject[cleanedHeader] = cleanedValue;
     });
+
+    // 檢查表單狀態，只有「已核准」的才處理
+    const formStatus = rowObject['表單狀態'];
+    if (formStatus && formStatus !== '已核准') {
+      excelLogger.debug('跳過非已核准狀態的表單', {
+        formNumber: rowObject['表單編號'],
+        formStatus: formStatus,
+      });
+      // 返回 null 表示應該跳過這筆資料
+      return null as any;
+    }
 
     // 處理預先付款單的會計科目設定
     this.handlePrepaymentForm(rowObject);
