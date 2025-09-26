@@ -5,6 +5,9 @@ import * as os from 'os';
 import { defineEventHandler, createError } from 'h3';
 import { ExcelService } from '../services/ExcelService';
 import { DatabaseService } from '../services/DatabaseService';
+import { getConnectionPool } from '../config/database';
+import { reimbursementTableSchema } from '../services/TableDefinitionService';
+import { uploadLogger } from '../services/LoggerService';
 
 // 設定 multer 儲存配置
 const storage = multer.diskStorage({
@@ -102,36 +105,46 @@ export default defineEventHandler(async (event) => {
     }
 
     uploadedFile = (event.node.req as any).file;
-    console.log(`📁 檔案上傳成功: ${uploadedFile!.originalname}`);
+    uploadLogger.info(`檔案上傳成功: ${uploadedFile!.originalname}`, {
+      fileName: uploadedFile!.originalname,
+      fileSize: uploadedFile!.size,
+    });
 
     // 1. 解析 Excel 檔案
-    console.log('📊 開始解析 Excel 檔案...');
+    uploadLogger.info('開始解析 Excel 檔案');
     const excelData = await ExcelService.parseExcel(uploadedFile!.path);
-    console.log(
-      `✅ Excel 解析完成: 總行數 ${excelData.totalRows}, 有效行數 ${excelData.validRows}, 跳過空行 ${excelData.skippedRows}`
-    );
+    uploadLogger.info('Excel 解析完成', {
+      totalRows: excelData.totalRows,
+      validRows: excelData.validRows,
+      skippedRows: excelData.skippedRows,
+    });
 
     // 2. 驗證 Excel 資料格式
     const requiredFields = ['表單編號', '申請人姓名', '表單本幣總計']; // 必要欄位
     ExcelService.validateExcelData(excelData, requiredFields);
-    console.log('✅ Excel 資料格式驗證通過');
+    uploadLogger.info('Excel 資料格式驗證通過');
 
     // 2.5. 資料預處理與擴充 (例如：填補銀行名稱)
-    console.log('✨ 開始資料預處理與擴充...');
+    uploadLogger.info('開始資料預處理與擴充');
     ExcelService.enrichBankData(excelData.rows);
-    console.log('✅ 資料擴充完成');
+    uploadLogger.info('資料擴充完成');
 
     // 3. 測試資料庫連接
-    console.log('🔗 測試資料庫連接...');
+    uploadLogger.info('測試資料庫連接');
     const dbConnected = await DatabaseService.testConnection();
     if (!dbConnected) {
       throw new Error('資料庫連接失敗');
     }
-    console.log('✅ 資料庫連接正常');
+    uploadLogger.info('資料庫連接正常');
 
-    // 4. 批次插入資料到資料庫
-    console.log('💾 開始批次插入資料到資料庫...');
-    const tableName = '費用報銷單'; // 使用費用報銷單資料表
+    // 4. 檢查並確保資料表結構是最新的
+    uploadLogger.info('檢查資料表結構');
+    await ensureTableStructure();
+    uploadLogger.info('資料表結構檢查完成');
+
+    // 5. 批次插入資料到資料庫
+    uploadLogger.info('開始批次插入資料到資料庫');
+    const tableName = 'ExpendForm'; // 使用ExpendForm資料表
     const dbResult = await DatabaseService.batchInsertData(
       excelData.rows,
       tableName
@@ -141,9 +154,11 @@ export default defineEventHandler(async (event) => {
       throw new Error(`資料庫操作失敗: ${dbResult.errors.join(', ')}`);
     }
 
-    console.log(
-      `✅ 資料庫操作完成: 成功插入 ${dbResult.insertedCount} 筆, 跳過 ${dbResult.skippedCount} 筆`
-    );
+    uploadLogger.info('資料庫操作完成', {
+      insertedCount: dbResult.insertedCount,
+      skippedCount: dbResult.skippedCount,
+      errorCount: dbResult.errors.length,
+    });
 
     // 5. 清理暫存檔案
     await ExcelService.cleanupFile(uploadedFile!.path);
@@ -171,7 +186,7 @@ export default defineEventHandler(async (event) => {
       },
     };
   } catch (error: any) {
-    console.error('❌ 檔案處理錯誤:', error);
+    uploadLogger.error('檔案處理錯誤', error);
 
     // 清理暫存檔案
     if (uploadedFile) {
@@ -213,3 +228,118 @@ export default defineEventHandler(async (event) => {
     });
   }
 });
+
+/**
+ * 確保資料表結構是最新的
+ * 檢查資料表是否存在，如果不存在則建立，如果存在則檢查是否需要新增欄位
+ */
+async function ensureTableStructure() {
+  const pool = await getConnectionPool();
+
+  // 檢查資料表是否存在
+  const tableExistsQuery = `
+    SELECT COUNT(*) as count 
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_NAME = 'ExpendForm'
+  `;
+
+  const tableExists = await pool.request().query(tableExistsQuery);
+  const exists = tableExists.recordset[0].count > 0;
+
+  if (!exists) {
+    // 如果資料表不存在，直接建立
+    uploadLogger.info('資料表不存在，建立新資料表');
+    const createTableQuery = `
+      CREATE TABLE ExpendForm (
+        ${reimbursementTableSchema}
+      )
+    `;
+    await pool.request().query(createTableQuery);
+    uploadLogger.info('新資料表建立成功');
+  } else {
+    // 如果資料表存在，檢查是否需要新增欄位
+    uploadLogger.info('資料表已存在，檢查結構是否需要更新');
+    await migrateTableStructure(pool);
+  }
+}
+
+/**
+ * 遷移資料表結構 - 只新增缺少的欄位
+ */
+async function migrateTableStructure(pool: any) {
+  // 定義期望的欄位結構
+  const expectedColumns = parseSchemaColumns(reimbursementTableSchema);
+
+  // 取得現有欄位
+  const existingColumnsQuery = `
+    SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE
+    FROM INFORMATION_SCHEMA.COLUMNS 
+    WHERE TABLE_NAME = 'ExpendForm'
+  `;
+
+  const existingColumns = await pool.request().query(existingColumnsQuery);
+  const existingColumnNames = new Set(
+    existingColumns.recordset.map((col: any) => col.COLUMN_NAME)
+  );
+
+  // 找出需要新增的欄位
+  const columnsToAdd = expectedColumns.filter(
+    (col: any) => !existingColumnNames.has(col.name)
+  );
+
+  if (columnsToAdd.length === 0) {
+    uploadLogger.info('資料表結構已是最新版本，無需更新');
+    return;
+  }
+
+  uploadLogger.info(`發現 ${columnsToAdd.length} 個新欄位需要新增`, {
+    newColumns: columnsToAdd.map((col) => col.name),
+  });
+
+  // 逐個新增欄位
+  for (const column of columnsToAdd) {
+    try {
+      const alterQuery = `ALTER TABLE ExpendForm ADD ${column.definition}`;
+      await pool.request().query(alterQuery);
+      uploadLogger.info(`成功新增欄位: ${column.name}`);
+    } catch (error) {
+      uploadLogger.error(`新增欄位失敗: ${column.name}`, error);
+      throw error;
+    }
+  }
+
+  uploadLogger.info('資料表結構遷移完成');
+}
+
+/**
+ * 解析 schema 字串，提取欄位定義
+ */
+function parseSchemaColumns(
+  schema: string
+): Array<{ name: string; definition: string }> {
+  // 移除換行和額外空格，分割成行
+  const lines = schema
+    .replace(/\n/g, ' ')
+    .split(',')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  return lines
+    .map((line) => {
+      // 提取欄位名稱 (方括號內的部分)
+      const nameMatch = line.match(/\[([^\]]+)\]/);
+      const name = nameMatch ? nameMatch[1] : '';
+
+      return {
+        name,
+        definition: line.trim(),
+      };
+    })
+    .filter((col) => {
+      // 過濾掉主鍵欄位，因為主鍵不能透過 ALTER TABLE ADD 新增
+      return (
+        !col.definition.includes('PRIMARY KEY') &&
+        !col.definition.includes('IDENTITY')
+      );
+    });
+}

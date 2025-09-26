@@ -1,4 +1,5 @@
 import sql from 'mssql';
+import { dbLogger } from '../services/LoggerService';
 //TODO : todo gcp vpn連進DB
 // SQL Server 連接配置
 const dbConfig = {
@@ -37,7 +38,7 @@ export async function getConnectionPool() {
         pool = null;
       }
 
-      console.log('🔗 嘗試連接資料庫:', {
+      dbLogger.info('嘗試連接資料庫', {
         server: dbConfig.server,
         port: dbConfig.port,
         database: dbConfig.database,
@@ -46,13 +47,12 @@ export async function getConnectionPool() {
 
       pool = new sql.ConnectionPool(dbConfig);
       await pool.connect();
-      console.log('✅ SQL Server 連接成功');
+      dbLogger.info('SQL Server 連接成功');
     } catch (err) {
       const error = err as { code?: string; message: string; errno?: string };
-      console.error('❌ SQL Server 連接失敗:', {
+      dbLogger.error('SQL Server 連接失敗', error, {
         code: error.code,
         errno: error.errno,
-        message: error.message,
         server: dbConfig.server,
         port: dbConfig.port,
         database: dbConfig.database,
@@ -80,7 +80,7 @@ export async function closeConnectionPool(): Promise<void> {
   if (pool) {
     await pool.close();
     pool = null;
-    console.log('🔒 SQL Server 連接已關閉');
+    dbLogger.info('SQL Server 連接已關閉');
   }
 }
 
@@ -89,10 +89,10 @@ export async function testConnection(): Promise<boolean> {
   try {
     const pool = await getConnectionPool();
     const result = await pool.request().query('SELECT 1 as test');
-    console.log('✅ 資料庫連接測試成功:', result.recordset);
+    dbLogger.info('資料庫連接測試成功', { result: result.recordset });
     return true;
   } catch (error) {
-    console.error('❌ 資料庫連接測試失敗:', error);
+    dbLogger.error('資料庫連接測試失敗', error);
     return false;
   }
 }

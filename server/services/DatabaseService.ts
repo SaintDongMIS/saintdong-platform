@@ -1,6 +1,7 @@
 import sql from 'mssql';
 import { getConnectionPool } from '../config/database';
-import { ExcelRow } from './ExcelService';
+import type { ExcelRow } from './ExcelService';
+import { dbLogger } from './LoggerService';
 
 export interface DatabaseResult {
   success: boolean;
@@ -29,7 +30,7 @@ export class DatabaseService {
 
       return result.recordset[0].count > 0;
     } catch (error) {
-      console.error('檢查表單編號失敗:', error);
+      dbLogger.error('檢查表單編號失敗', error);
       throw error;
     }
   }
@@ -57,7 +58,7 @@ export class DatabaseService {
       await transaction.begin();
 
       // 批次查詢重複檢查：一次查詢所有表單編號
-      console.log('🔍 批次查詢重複檢查...');
+      dbLogger.info('批次查詢重複檢查');
       const formNumbers = data
         .map((row) => row[formNumberField])
         .filter(
@@ -72,9 +73,10 @@ export class DatabaseService {
 
       // 建立 Set 以便快速查找
       const existingFormSet = new Set(existingForms);
-      console.log(
-        `📊 批次查詢完成: 總共 ${formNumbers.length} 個表單編號, 其中 ${existingFormSet.size} 個已存在`
-      );
+      dbLogger.info('批次查詢完成', {
+        totalForms: formNumbers.length,
+        existingForms: existingFormSet.size,
+      });
 
       // 建立一個 Set 來追蹤此批次中已處理的表單編號，以處理檔案內的重複
       const processedInThisBatch = new Set<string>();
@@ -93,14 +95,14 @@ export class DatabaseService {
           // 檢查是否已存在於資料庫
           if (existingFormSet.has(trimmedFormNumber)) {
             result.skippedCount++;
-            console.log(`⏭️ 跳過已存在於資料庫的表單編號: ${formNumber}`);
+            dbLogger.debug(`跳過已存在於資料庫的表單編號: ${formNumber}`);
             continue;
           }
 
           // 檢查是否在此次上傳中已處理過 (檔案內部重複)
           if (processedInThisBatch.has(trimmedFormNumber)) {
             result.skippedCount++;
-            console.log(`⏭️ 跳過檔案內重複的表單編號: ${formNumber}`);
+            dbLogger.debug(`跳過檔案內重複的表單編號: ${formNumber}`);
             continue;
           }
 
@@ -114,7 +116,7 @@ export class DatabaseService {
             row
           )} - ${rowError}`;
           result.errors.push(errorMsg);
-          console.error(errorMsg);
+          dbLogger.error(errorMsg);
         }
       }
 
@@ -122,9 +124,11 @@ export class DatabaseService {
       await transaction.commit();
       result.success = true;
 
-      console.log(
-        `✅ 批次插入完成: 成功 ${result.insertedCount} 筆, 跳過 ${result.skippedCount} 筆, 錯誤 ${result.errors.length} 筆`
-      );
+      dbLogger.info('批次插入完成', {
+        insertedCount: result.insertedCount,
+        skippedCount: result.skippedCount,
+        errorCount: result.errors.length,
+      });
     } catch (error) {
       // 回滾交易
       await transaction.rollback();
@@ -132,7 +136,7 @@ export class DatabaseService {
       result.errors.push(
         `交易失敗: ${error instanceof Error ? error.message : '未知錯誤'}`
       );
-      console.error('❌ 資料庫交易失敗:', error);
+      dbLogger.error('資料庫交易失敗', error);
     }
 
     return result;
@@ -169,7 +173,7 @@ export class DatabaseService {
           ', '
         )})`;
         const result = await request.query(query);
-        const foundForms = result.recordset.map((row) => row['表單編號']);
+        const foundForms = result.recordset.map((row: any) => row['表單編號']);
         existingForms.push(...foundForms);
       }
     }
@@ -205,7 +209,7 @@ export class DatabaseService {
   ): Promise<void> {
     const request = new sql.Request(transaction);
 
-    // 動態建立 INSERT 語句
+    // 動態建立 INSERT 語句，排除 EFid 主鍵欄位
     const columns = Object.keys(row);
     const values = Object.values(row);
 
@@ -215,20 +219,51 @@ export class DatabaseService {
       .map((col, index) => `@param${index}`)
       .join(', ');
 
-    // 設定參數，並將空字串轉換為 null
+    // 設定參數，並根據欄位類型選擇適當的 SQL 類型
     columns.forEach((col, index) => {
       let value = values[index];
-      // 對於可能為數字的欄位，如果值是空字串，則將其設定為 null
-      // 這樣可以避免 "Error converting data type nvarchar to numeric" 錯誤
+
+      // 空字串轉換為 null
       if (value === '') {
         value = null;
       }
-      request.input(`param${index}`, sql.NVarChar, value);
+
+      // 根據欄位名稱判斷資料類型
+      const sqlType = this.getSqlTypeForColumn(col, value);
+      request.input(`param${index}`, sqlType, value);
     });
 
     const insertQuery = `INSERT INTO ${tableName} (${columnNames}) VALUES (${parameterNames})`;
 
     await request.query(insertQuery);
+  }
+
+  /**
+   * 根據欄位名稱判斷 SQL 資料類型
+   */
+  private static getSqlTypeForColumn(columnName: string, value: any): any {
+    // 日期欄位
+    if (columnName.includes('日期') || columnName.includes('時間')) {
+      return sql.Date;
+    }
+
+    // 金額欄位
+    if (
+      columnName.includes('金額') ||
+      columnName.includes('總計') ||
+      columnName.includes('稅額') ||
+      columnName.includes('匯率')
+    ) {
+      return sql.Decimal(18, 2);
+    }
+
+    // 匯率欄位 (特殊處理)
+    if (columnName === '匯率') {
+      return sql.Decimal(18, 6);
+    }
+
+    // 預設為字串
+    return sql.NVarChar;
   }
 
   /**
@@ -251,7 +286,7 @@ export class DatabaseService {
 
       return result.recordset;
     } catch (error) {
-      console.error('取得資料表資訊失敗:', error);
+      dbLogger.error('取得資料表資訊失敗', error);
       throw error;
     }
   }
@@ -265,10 +300,10 @@ export class DatabaseService {
       const result = await pool
         .request()
         .query('SELECT GETDATE() as current_datetime');
-      console.log('✅ 資料庫連接測試成功:', result.recordset[0]);
+      dbLogger.info('資料庫連接測試成功', { result: result.recordset[0] });
       return true;
     } catch (error) {
-      console.error('❌ 資料庫連接測試失敗:', error);
+      dbLogger.error('資料庫連接測試失敗', error);
       return false;
     }
   }
