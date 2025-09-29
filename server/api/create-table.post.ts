@@ -7,6 +7,15 @@ export default defineEventHandler(async (event) => {
   try {
     apiLogger.info('建立 ExpendForm 資料表');
 
+    // 1. 先測試資料庫連接
+    apiLogger.info('測試資料庫連接');
+    const { DatabaseService } = await import('../services/DatabaseService');
+    const dbConnected = await DatabaseService.testConnection();
+    if (!dbConnected) {
+      throw new Error('資料庫連接失敗，無法建立資料表');
+    }
+    apiLogger.info('資料庫連接正常');
+
     const pool = await getConnectionPool();
 
     // 建立 ExpendForm 資料表

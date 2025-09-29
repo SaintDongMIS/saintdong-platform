@@ -296,15 +296,72 @@ export class DatabaseService {
    */
   static async testConnection(): Promise<boolean> {
     try {
+      dbLogger.info('嘗試連接資料庫');
       const pool = await getConnectionPool();
+
+      // 檢查連線池狀態
+      if (!pool || !pool.connected) {
+        dbLogger.error('資料庫連線池未連接');
+        return false;
+      }
+
+      // 執行簡單查詢測試
       const result = await pool
         .request()
         .query('SELECT GETDATE() as current_datetime');
+
+      dbLogger.info('SQL Server 連接成功');
       dbLogger.info('資料庫連接測試成功', { result: result.recordset[0] });
       return true;
     } catch (error) {
       dbLogger.error('資料庫連接測試失敗', error);
       return false;
+    }
+  }
+
+  /**
+   * 檢查資料庫連線狀態
+   */
+  static async checkConnectionStatus(): Promise<{
+    connected: boolean;
+    message: string;
+    details?: any;
+  }> {
+    try {
+      const pool = await getConnectionPool();
+
+      if (!pool) {
+        return {
+          connected: false,
+          message: '連線池未初始化',
+        };
+      }
+
+      if (!pool.connected) {
+        return {
+          connected: false,
+          message: '連線池未連接',
+        };
+      }
+
+      // 執行測試查詢
+      const result = await pool
+        .request()
+        .query('SELECT GETDATE() as current_datetime, @@VERSION as version');
+
+      return {
+        connected: true,
+        message: '資料庫連接正常',
+        details: result.recordset[0],
+      };
+    } catch (error) {
+      return {
+        connected: false,
+        message: `資料庫連接失敗: ${
+          error instanceof Error ? error.message : '未知錯誤'
+        }`,
+        details: error,
+      };
     }
   }
 }

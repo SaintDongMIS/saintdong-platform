@@ -21,15 +21,28 @@ export class ExcelService {
    */
   static async parseExcel(filePath: string): Promise<ProcessedExcelData> {
     try {
+      excelLogger.info('開始讀取檔案');
       const fileBuffer = await this.readFile(filePath);
+
+      excelLogger.info('開始解析工作簿');
       const workbook = await this.parseWorkbook(filePath, fileBuffer);
       const worksheet = await this.getFirstWorksheet(workbook);
+
+      excelLogger.info('轉換為 JSON 格式');
       const jsonData = await this.convertToJson(worksheet);
       const headers = await this.extractHeaders(jsonData);
+
+      excelLogger.info('開始處理資料行');
       const { processedRows, skippedRows } = await this.processDataRows(
         jsonData,
         headers
       );
+
+      excelLogger.info('Excel 解析完成', {
+        totalRows: jsonData.length - 1,
+        validRows: processedRows.length,
+        skippedRows: skippedRows,
+      });
 
       return {
         headers,

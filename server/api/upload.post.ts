@@ -110,7 +110,15 @@ export default defineEventHandler(async (event) => {
       fileSize: uploadedFile!.size,
     });
 
-    // 1. 解析 Excel 檔案
+    // 1. 先測試資料庫連接 (最重要！)
+    uploadLogger.info('測試資料庫連接');
+    const dbConnected = await DatabaseService.testConnection();
+    if (!dbConnected) {
+      throw new Error('資料庫連接失敗，無法處理檔案');
+    }
+    uploadLogger.info('資料庫連接正常');
+
+    // 2. 解析 Excel 檔案
     uploadLogger.info('開始解析 Excel 檔案');
     const excelData = await ExcelService.parseExcel(uploadedFile!.path);
     uploadLogger.info('Excel 解析完成', {
@@ -119,23 +127,15 @@ export default defineEventHandler(async (event) => {
       skippedRows: excelData.skippedRows,
     });
 
-    // 2. 驗證 Excel 資料格式
+    // 3. 驗證 Excel 資料格式
     const requiredFields = ['表單編號', '申請人姓名', '表單本幣總計']; // 必要欄位
     ExcelService.validateExcelData(excelData, requiredFields);
     uploadLogger.info('Excel 資料格式驗證通過');
 
-    // 2.5. 資料預處理與擴充 (例如：填補銀行名稱)
+    // 4. 資料預處理與擴充 (例如：填補銀行名稱)
     uploadLogger.info('開始資料預處理與擴充');
     ExcelService.enrichBankData(excelData.rows);
     uploadLogger.info('資料擴充完成');
-
-    // 3. 測試資料庫連接
-    uploadLogger.info('測試資料庫連接');
-    const dbConnected = await DatabaseService.testConnection();
-    if (!dbConnected) {
-      throw new Error('資料庫連接失敗');
-    }
-    uploadLogger.info('資料庫連接正常');
 
     // 4. 檢查並確保資料表結構是最新的
     uploadLogger.info('檢查資料表結構');
@@ -296,14 +296,43 @@ async function migrateTableStructure(pool: any) {
     newColumns: columnsToAdd.map((col) => col.name),
   });
 
+  // 驗證欄位定義的有效性
+  const validColumns = columnsToAdd.filter((col) => {
+    const isValid =
+      col.name &&
+      col.name.length > 0 &&
+      col.definition &&
+      col.definition.length > 0;
+    if (!isValid) {
+      uploadLogger.warn(`跳過無效欄位定義: ${JSON.stringify(col)}`);
+    }
+    return isValid;
+  });
+
+  if (validColumns.length === 0) {
+    uploadLogger.info('沒有有效的欄位需要新增');
+    return;
+  }
+
+  uploadLogger.info(`將新增 ${validColumns.length} 個有效欄位`, {
+    validColumns: validColumns.map((col) => col.name),
+  });
+
   // 逐個新增欄位
-  for (const column of columnsToAdd) {
+  for (const column of validColumns) {
     try {
       const alterQuery = `ALTER TABLE ExpendForm ADD ${column.definition}`;
+      uploadLogger.info(`嘗試新增欄位: ${column.name}`, {
+        definition: column.definition,
+      });
       await pool.request().query(alterQuery);
       uploadLogger.info(`成功新增欄位: ${column.name}`);
     } catch (error) {
-      uploadLogger.error(`新增欄位失敗: ${column.name}`, error);
+      const errorMessage = error instanceof Error ? error.message : '未知錯誤';
+      uploadLogger.error(`新增欄位失敗: ${column.name}`, {
+        error: errorMessage,
+        definition: column.definition,
+      });
       throw error;
     }
   }
@@ -336,10 +365,15 @@ function parseSchemaColumns(
       };
     })
     .filter((col) => {
-      // 過濾掉主鍵欄位，因為主鍵不能透過 ALTER TABLE ADD 新增
+      // 過濾掉空字串、主鍵欄位和無效欄位
       return (
+        col.name &&
+        col.name.length > 0 &&
+        col.definition &&
+        col.definition.length > 0 &&
         !col.definition.includes('PRIMARY KEY') &&
-        !col.definition.includes('IDENTITY')
+        !col.definition.includes('IDENTITY') &&
+        !col.definition.includes('DEFAULT')
       );
     });
 }
