@@ -99,18 +99,26 @@ export class DatabaseService {
             continue;
           }
 
+          // 建立複合鍵來判斷檔案內部重複
+          const expenseItem = row['費用項目'] || '';
+          const invoiceNumber = row['發票號碼'] || '';
+          const transactionDate = row['交易日期'] || '';
+          const itemAmount = row['項目原幣金額'] || '';
+
+          const compositeKey = `${trimmedFormNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
+
           // 檢查是否在此次上傳中已處理過 (檔案內部重複)
-          if (processedInThisBatch.has(trimmedFormNumber)) {
+          if (processedInThisBatch.has(compositeKey)) {
             result.skippedCount++;
-            dbLogger.debug(`跳過檔案內重複的表單編號: ${formNumber}`);
+            dbLogger.debug(`跳過檔案內重複的費用項目: ${compositeKey}`);
             continue;
           }
 
           // 插入新資料
           await this.insertRowInTransaction(transaction, row, tableName);
           result.insertedCount++;
-          // 將成功插入的表單編號加入到追蹤 Set 中
-          processedInThisBatch.add(trimmedFormNumber);
+          // 將成功插入的複合鍵加入到追蹤 Set 中
+          processedInThisBatch.add(compositeKey);
         } catch (rowError) {
           const errorMsg = `插入資料行失敗: ${JSON.stringify(
             row
