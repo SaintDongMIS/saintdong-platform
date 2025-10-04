@@ -57,28 +57,7 @@ export class DatabaseService {
       // 開始交易
       await transaction.begin();
 
-      // 批次查詢重複檢查：一次查詢所有表單編號
-      dbLogger.info('批次查詢重複檢查');
-      const formNumbers = data
-        .map((row) => row[formNumberField])
-        .filter(
-          (formNumber) => formNumber && formNumber.toString().trim() !== ''
-        );
-
-      const existingForms = await this.batchCheckFormExistsInTransaction(
-        transaction,
-        formNumbers,
-        tableName
-      );
-
-      // 建立 Set 以便快速查找
-      const existingFormSet = new Set(existingForms);
-      dbLogger.info('批次查詢完成', {
-        totalForms: formNumbers.length,
-        existingForms: existingFormSet.size,
-      });
-
-      // 建立一個 Set 來追蹤此批次中已處理的表單編號，以處理檔案內的重複
+      // 建立一個 Set 來追蹤此批次中已處理的複合鍵，以處理檔案內的重複
       const processedInThisBatch = new Set<string>();
 
       for (const row of data) {
@@ -91,13 +70,6 @@ export class DatabaseService {
           }
 
           const trimmedFormNumber = formNumber.toString().trim();
-
-          // 檢查是否已存在於資料庫
-          if (existingFormSet.has(trimmedFormNumber)) {
-            result.skippedCount++;
-            dbLogger.debug(`跳過已存在於資料庫的表單編號: ${formNumber}`);
-            continue;
-          }
 
           // 建立複合鍵來判斷檔案內部重複
           const expenseItem = row['費用項目'] || '';
