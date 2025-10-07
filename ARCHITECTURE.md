@@ -231,7 +231,6 @@ chore: 建置工具或輔助工具的變動
 - Synology NAS
 - Docker Container Manager
 - 內網資料庫直連
-- 環境變數檔案 (`.env.nas`)
 
 ## 監控與維護
 
@@ -276,32 +275,6 @@ sudo docker restart saintdong-platform
 3. ✅ **建構新映像** - 使用最新代碼建構新的 Docker 映像
 4. ✅ **啟動新容器** - 啟動包含最新代碼的容器
 5. ✅ **顯示狀態** - 確認容器正常運行
-
-### 環境變數配置
-
-容器運行時會從 `.env.nas` 檔案讀取環境變數：
-
-```bash
-# 建立環境變數檔案
-cp .env.nas.example .env.nas
-
-# 編輯實際配置
-vim .env.nas
-
-# 設定檔案權限
-chmod 600 .env.nas
-```
-
-**環境變數範例：**
-
-```bash
-NODE_ENV=production
-DB_SERVER=192.168.8.239
-DB_PORT=1433
-DB_USER=sa
-DB_PASSWORD=your_actual_password
-DB_DATABASE=APIsync
-```
 
 ### 訪問應用
 

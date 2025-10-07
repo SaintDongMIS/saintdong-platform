@@ -30,8 +30,6 @@ saintdong-platform/
 # 開發環境
 cp .env.example .env
 
-# NAS 生產環境
-cp .env.nas.example .env.nas
 ```
 
 ### 2. 編輯環境變數
@@ -40,18 +38,12 @@ cp .env.nas.example .env.nas
 
 ```bash
 # 開發環境範例
-DB_SERVER=192.168.8.239
-DB_PORT=1433
-DB_USER=sa
+DB_SERVER=
+DB_PORT=
+DB_USER=
 DB_PASSWORD=your_actual_password
-DB_DATABASE=APIsync
+DB_DATABASE=
 ```
-
-### 3. 安全注意事項
-
-- ⚠️ **不要將 `.env` 檔案提交到 Git**
-- 🔒 生產環境使用 `.env.nas` 檔案
-- 🛡️ 定期更換資料庫密碼
 
 ## 開發原則
 
