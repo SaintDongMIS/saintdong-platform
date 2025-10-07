@@ -18,6 +18,33 @@
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
+### 網路架構圖（NAS 代理方案）
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   GCP App       │    │   公網          │    │   公司路由器    │    │   Synology NAS  │
+│   Engine        │────│   (Internet)    │────│ 192.168.197.215 │────│ 192.168.197.216 │
+│                 │    │                 │    │                 │    │                 │
+│ • 應用程式      │    │ • 210.242.212.133│    │ • 埠轉發        │    │ • Docker 容器   │
+│ • API 服務      │    │ • 7777 埠       │    │ • 防火牆規則    │    │ • Nginx 代理    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+                                                                              │
+                                                                              ▼
+                                                                    ┌─────────────────┐
+                                                                    │   內網資料庫    │
+                                                                    │ 192.168.8.239  │
+                                                                    │                 │
+                                                                    │ • SQL Server    │
+                                                                    │ • 1433 埠       │
+                                                                    └─────────────────┘
+```
+
+**資料流向：**
+
+```
+GCP App Engine → 公網:7777 → 路由器埠轉發 → NAS:7777 → Docker:3000 → Nginx → 內網資料庫:1433
+```
+
 ### 專案結構
 
 本專案採用 Nuxt.js 3 的整合式架構，前端與後端 API 都在同一個專案中開發，簡化了開發與部署流程。
@@ -236,10 +263,179 @@ chore: 建置工具或輔助工具的變動
 - **日誌聚合**: Cloud Logging 集中管理
 - **日誌分析**: 支援複雜查詢與分析
 
+## 網路架構配置（NAS 代理方案）
+
+### 架構概述
+
+本專案採用 NAS 代理方案連接 GCP App Engine 與公司內部 SQL Server 資料庫，透過 Synology NAS 上的 Docker 容器提供 TCP 代理服務。
+
+### 網路配置詳情
+
+#### 1. 路由器埠轉發設定
+
+**需要在公司路由器 (192.168.197.215) 上設定：**
+
+```
+服務名稱: SaintDong Platform 資料庫代理
+外部 IP: 210.242.212.133
+外部埠: 7777
+內部 IP: 192.168.197.216 (Synology NAS)
+內部埠: 7777
+協定: TCP
+用途: GCP App Engine 連接內部 SQL Server 資料庫
+```
+
+#### 2. Synology NAS 配置
+
+**Docker 容器配置 (`docker-compose.yml`)：**
+
+```yaml
+version: '3.8'
+services:
+  nginx-tcp-proxy:
+    image: nginx:alpine
+    container_name: saintdong-tcp-proxy
+    ports:
+      - '7777:3000' # 外部7777埠映射到容器內部3000埠
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    restart: unless-stopped
+    networks:
+      - saintdong-network
+
+networks:
+  saintdong-network:
+    driver: bridge
+```
+
+**Nginx 配置 (`nginx.conf`)：**
+
+```nginx
+events {
+    worker_connections 1024;
+}
+
+stream {
+    upstream sql_server {
+        server 192.168.8.239:1433;
+    }
+
+    server {
+        listen 3000;
+        proxy_pass sql_server;
+        proxy_timeout 1s;
+        proxy_responses 1;
+        error_log /var/log/nginx/stream_error.log;
+    }
+}
+```
+
+#### 3. GCP App Engine 配置
+
+**環境變數設定 (`app.yaml`)：**
+
+```yaml
+env_variables:
+  NODE_ENV: production
+  DB_SERVER: '210.242.212.133' # 公司公網 IP
+  DB_PORT: '7777' # 對應 Docker Compose 的外部埠
+  DB_USER: 'sa'
+  DB_PASSWORD: 'dsc@23265946'
+  DB_DATABASE: 'APIsync'
+```
+
+### 安全考量
+
+#### 1. 防火牆規則
+
+- 只允許 GCP App Engine 的出口 IP 範圍訪問 210.242.212.133:7777
+- 拒絕其他所有來源的連接
+
+#### 2. 資料庫安全
+
+- 使用強密碼策略
+- 考慮建立專用應用程式帳號（非 sa 帳號）
+- 啟用 SSL 加密連接
+
+#### 3. 監控和日誌
+
+- 記錄所有代理請求
+- 監控異常連接模式
+- 定期檢查容器健康狀態
+
+### 維護和監控
+
+#### 1. 容器管理
+
+```bash
+# 檢查容器狀態
+docker ps | grep saintdong-tcp-proxy
+
+# 查看容器日誌
+docker logs saintdong-tcp-proxy
+
+# 重啟容器
+docker-compose restart
+```
+
+#### 2. 連接測試
+
+```bash
+# 測試內網資料庫連接
+docker exec saintdong-tcp-proxy nc -zv 192.168.8.239 1433
+
+# 測試本地代理連接
+python3 -c "
+import socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.settimeout(3)
+result = sock.connect_ex(('localhost', 7777))
+print('✅ 連接成功' if result == 0 else '❌ 連接失敗')
+sock.close()
+"
+```
+
+### 成本效益分析
+
+#### 優勢
+
+- **成本低**: 無需額外 GCP 服務費用
+- **部署快速**: 使用現有 NAS 資源
+- **維護簡單**: Docker 容器易於管理
+- **技術熟悉**: 使用現有技術棧
+
+#### 限制
+
+- **單點故障**: NAS 當機影響服務
+- **效能限制**: 受 NAS 硬體限制
+- **擴展困難**: 無法自動擴展
+- **公網暴露**: 需要嚴格安全措施
+
+### 未來擴展規劃
+
+#### 短期（1-3 個月）
+
+- 監控使用量和效能
+- 優化安全配置
+- 建立備援機制
+
+#### 中期（3-6 個月）
+
+- 評估 Cloud VPN 方案
+- 考慮資料庫遷移到 Cloud SQL
+- 實施更嚴格的安全措施
+
+#### 長期（6 個月以上）
+
+- 根據使用量決定是否升級架構
+- 建立完整的企業級安全架構
+- 實施自動化監控和告警
+
 ## 開發流程
 
 1. **需求分析**: 明確功能需求與技術規格
 2. **架構設計**: 設計前後端架構與 API 介面
-3. **開發實作**: 遵循編碼規範進行開發
-4. **測試驗證**: 功能測試與整合測試
-5. **部署上線**: 部署至 App Engine 環境
+3. **網路配置**: 設定 NAS 代理和路由器埠轉發
+4. **開發實作**: 遵循編碼規範進行開發
+5. **測試驗證**: 功能測試與整合測試
+6. **部署上線**: 部署至 App Engine 環境

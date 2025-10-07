@@ -2,13 +2,13 @@ runtime: nodejs20
 
 service: saintdong-platform
 
-# VPC 連接器配置 - 用於連接公司資料庫
-vpc_access_connector:
-  name: projects/annular-welder-684/locations/us-central1/connectors/gae-connector
+# 移除VPC連接器配置 - 改用NAS代理
+# vpc_access_connector:
+#   name: projects/annular-welder-684/locations/us-central1/connectors/gae-connector
 
 env_variables:
   NODE_ENV: production
-  DB_SERVER: '111.235.249.186'
+  DB_SERVER: '192.168.8.239'
   DB_PORT: '1433'
   DB_USER: 'sa'
   DB_PASSWORD: 'dsc@23265946'

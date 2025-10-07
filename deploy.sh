@@ -1,42 +1,59 @@
 #!/bin/bash
 
-echo "🚀 開始部署..."
+echo "🚀 開始自動部署 SaintDong Platform..."
 
-# 載入環境設定
-if [ -f .envrc ]; then
-    source .envrc
-fi
+# 進入專案目錄
+cd /volume1/docker/saintdong-platform
 
-# 載入 nvm 並確保使用正確的 Node.js 版本
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+# 拉取最新代碼（如果使用 Git）
+echo "📦 拉取最新代碼..."
+# git pull origin main
 
-if command -v nvm &> /dev/null; then
-    echo "🔍 切換到 Node.js v23.1.0..."
-    nvm use v23.1.0
-    NODE_VERSION=$(node --version)
-    echo "✅ 目前使用 Node.js: $NODE_VERSION"
-else
-    echo "❌ 錯誤: nvm 未安裝或無法載入"
-    echo "請確保 nvm 已正確安裝"
-    exit 1
-fi
+# 停止並移除舊容器
+echo "🛑 停止並移除舊容器..."
+docker stop saintdong-platform 2>/dev/null || true
+docker rm saintdong-platform 2>/dev/null || true
 
-# 建構
-yarn build
+# 移除舊映像檔
+echo "🗑️ 移除舊映像檔..."
+docker rmi saintdong-platform:latest 2>/dev/null || true
 
-# 部署到指定專案
-echo "🚀 部署到專案: annular-welder-684"
-gcloud app deploy app.yaml --project=annular-welder-684 --quiet
+# 建構新的 Docker 映像檔
+echo "🔨 建構新的 Docker 映像檔..."
+docker build -t saintdong-platform:latest .
 
-# 獲取應用程式 URL
-APP_URL=$(gcloud app browse --project=annular-welder-684 --no-launch-browser)
+# 啟動新的 Docker 容器
+echo "🚀 啟動新的 Docker 容器..."
+docker run -d \
+  --name saintdong-platform \
+  -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e DB_SERVER=192.168.8.239 \
+  -e DB_PORT=1433 \
+  -e DB_USER=sa \
+  -e DB_PASSWORD=dsc@23265946 \
+  -e DB_DATABASE=APIsync \
+  --restart unless-stopped \
+  saintdong-platform:latest
+
+# 等待容器啟動
+echo "⏳ 等待容器啟動..."
+sleep 5
+
+# 檢查容器狀態
+echo "✅ 部署完成！檢查容器狀態..."
+docker ps | grep saintdong-platform
+
+# 顯示容器日誌
+echo ""
+echo "📋 容器日誌："
+docker logs --tail 20 saintdong-platform
+
 echo ""
 echo "🎉 部署成功！"
-echo "📱 應用程式 URL: $APP_URL"
-
-# 開啟瀏覽器
-if command -v open &> /dev/null; then
-    echo "🌐 正在開啟瀏覽器..."
-    open $APP_URL
-fi
+echo "📱 應用 URL: http://192.168.197.216:3000"
+echo ""
+echo "常用命令："
+echo "  查看日誌: docker logs -f saintdong-platform"
+echo "  重啟容器: docker restart saintdong-platform"
+echo "  停止容器: docker stop saintdong-platform"
