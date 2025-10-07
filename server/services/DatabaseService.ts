@@ -83,7 +83,7 @@ export class DatabaseService {
           const expenseItem = row['費用項目'] || '';
           const invoiceNumber = row['發票號碼'] || '';
           const transactionDate = row['交易日期'] || '';
-          const itemAmount = row['項目原幣金額'] || '';
+          const itemAmount = parseFloat(row['項目原幣金額'] || '0').toFixed(2);
 
           const compositeKey = `${trimmedFormNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
 
@@ -154,7 +154,7 @@ export class DatabaseService {
         const expenseItem = row['費用項目'] || '';
         const invoiceNumber = row['發票號碼'] || '';
         const transactionDate = row['交易日期'] || '';
-        const itemAmount = row['項目原幣金額'] || '';
+        const itemAmount = parseFloat(row['項目原幣金額'] || '0').toFixed(2);
         return `${formNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
       })
       .filter((key) => key !== '----'); // 過濾空鍵
@@ -165,10 +165,10 @@ export class DatabaseService {
     const request = new sql.Request(transaction);
     const query = `
       SELECT DISTINCT 
-        [表單編號] + '-' + [費用項目] + '-' + ISNULL([發票號碼], '') + '-' + 
+        [表單編號] + '-' + ISNULL([費用項目], '') + '-' + ISNULL([發票號碼], '') + '-' + 
         CONVERT(VARCHAR(10), [交易日期], 120) + '-' + CAST([項目原幣金額] AS VARCHAR(20)) as composite_key
       FROM ${tableName}
-      WHERE [表單編號] + '-' + [費用項目] + '-' + ISNULL([發票號碼], '') + '-' + 
+      WHERE [表單編號] + '-' + ISNULL([費用項目], '') + '-' + ISNULL([發票號碼], '') + '-' + 
             CONVERT(VARCHAR(10), [交易日期], 120) + '-' + CAST([項目原幣金額] AS VARCHAR(20)) 
             IN (${compositeKeys.map((_, i) => `@key${i}`).join(', ')})
     `;
