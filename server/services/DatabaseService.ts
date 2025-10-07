@@ -36,7 +36,7 @@ export class DatabaseService {
   }
 
   /**
-   * 批次插入資料到資料庫
+   * 批次插入資料到資料庫 - 移除檔案內部重複檢查，只保留資料庫重複檢查
    */
   static async batchInsertData(
     data: ExcelRow[],
@@ -57,8 +57,16 @@ export class DatabaseService {
       // 開始交易
       await transaction.begin();
 
+      // 🔥 移除檔案內部重複檢查，允許檔案內相同資料
       // 建立一個 Set 來追蹤此批次中已處理的複合鍵，以處理檔案內的重複
-      const processedInThisBatch = new Set<string>();
+      // const processedInThisBatch = new Set<string>(); // 移除這行
+
+      // 🔥 新增：批次檢查資料庫中已存在的資料（O(1) 查詢）
+      const existingData = await this.batchCheckExistingData(
+        transaction,
+        data,
+        tableName
+      );
 
       for (const row of data) {
         try {
@@ -71,7 +79,7 @@ export class DatabaseService {
 
           const trimmedFormNumber = formNumber.toString().trim();
 
-          // 建立複合鍵來判斷檔案內部重複
+          // 建立複合鍵來判斷重複
           const expenseItem = row['費用項目'] || '';
           const invoiceNumber = row['發票號碼'] || '';
           const transactionDate = row['交易日期'] || '';
@@ -79,18 +87,25 @@ export class DatabaseService {
 
           const compositeKey = `${trimmedFormNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
 
-          // 檢查是否在此次上傳中已處理過 (檔案內部重複)
-          if (processedInThisBatch.has(compositeKey)) {
+          // 🔥 移除檔案內部重複檢查
+          // if (processedInThisBatch.has(compositeKey)) {
+          //   result.skippedCount++;
+          //   dbLogger.debug(`跳過檔案內重複的費用項目: ${compositeKey}`);
+          //   continue;
+          // }
+
+          // 🔥 只檢查資料庫中是否已存在（O(1) 查詢）
+          if (existingData.has(compositeKey)) {
             result.skippedCount++;
-            dbLogger.debug(`跳過檔案內重複的費用項目: ${compositeKey}`);
+            dbLogger.debug(`跳過資料庫中已存在的費用項目: ${compositeKey}`);
             continue;
           }
 
           // 插入新資料
           await this.insertRowInTransaction(transaction, row, tableName);
           result.insertedCount++;
-          // 將成功插入的複合鍵加入到追蹤 Set 中
-          processedInThisBatch.add(compositeKey);
+          // 🔥 移除這行
+          // processedInThisBatch.add(compositeKey);
         } catch (rowError) {
           const errorMsg = `插入資料行失敗: ${JSON.stringify(
             row
@@ -120,6 +135,51 @@ export class DatabaseService {
     }
 
     return result;
+  }
+
+  /**
+   * 批次檢查已存在的資料 - 單次查詢，O(1) 效能
+   */
+  private static async batchCheckExistingData(
+    transaction: any,
+    data: ExcelRow[],
+    tableName: string
+  ): Promise<Set<string>> {
+    if (data.length === 0) return new Set();
+
+    // 建立所有可能的複合鍵
+    const compositeKeys = data
+      .map((row) => {
+        const formNumber = row['表單編號']?.toString().trim() || '';
+        const expenseItem = row['費用項目'] || '';
+        const invoiceNumber = row['發票號碼'] || '';
+        const transactionDate = row['交易日期'] || '';
+        const itemAmount = row['項目原幣金額'] || '';
+        return `${formNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
+      })
+      .filter((key) => key !== '----'); // 過濾空鍵
+
+    if (compositeKeys.length === 0) return new Set();
+
+    // 使用 IN 子查詢，效能最佳
+    const request = new sql.Request(transaction);
+    const query = `
+      SELECT DISTINCT 
+        [表單編號] + '-' + [費用項目] + '-' + ISNULL([發票號碼], '') + '-' + 
+        CONVERT(VARCHAR(10), [交易日期], 120) + '-' + CAST([項目原幣金額] AS VARCHAR(20)) as composite_key
+      FROM ${tableName}
+      WHERE [表單編號] + '-' + [費用項目] + '-' + ISNULL([發票號碼], '') + '-' + 
+            CONVERT(VARCHAR(10), [交易日期], 120) + '-' + CAST([項目原幣金額] AS VARCHAR(20)) 
+            IN (${compositeKeys.map((_, i) => `@key${i}`).join(', ')})
+    `;
+
+    // 設定參數
+    compositeKeys.forEach((key, i) => {
+      request.input(`key${i}`, sql.NVarChar, key);
+    });
+
+    const result = await request.query(query);
+    return new Set(result.recordset.map((row) => row.composite_key));
   }
 
   /**

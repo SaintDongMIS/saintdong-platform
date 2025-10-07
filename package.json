@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "build": "nuxt prepare && nuxt build",
-    "dev": "NODE_OPTIONS=--no-warnings nuxt dev",
+    "dev": "NODE_OPTIONS=--no-warnings nuxt dev --port 3000",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "",

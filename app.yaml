@@ -2,17 +2,13 @@ runtime: nodejs20
 
 service: saintdong-platform
 
-# 移除VPC連接器配置 - 改用NAS代理
-# vpc_access_connector:
-#   name: projects/annular-welder-684/locations/us-central1/connectors/gae-connector
-
 env_variables:
   NODE_ENV: production
-  DB_SERVER: '192.168.8.239'
-  DB_PORT: '1433'
-  DB_USER: 'sa'
-  DB_PASSWORD: 'dsc@23265946'
-  DB_DATABASE: 'APIsync'
+  DB_SERVER: ''
+  DB_PORT: ''
+  DB_USER: ''
+  # DB_PASSWORD 透過 GCP Secret Manager 或環境變數設定
+  DB_DATABASE: ''
 
 handlers:
   - url: /.*

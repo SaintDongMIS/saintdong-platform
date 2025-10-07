@@ -27,12 +27,7 @@ echo "🚀 啟動新的 Docker 容器..."
 docker run -d \
   --name saintdong-platform \
   -p 3000:3000 \
-  -e NODE_ENV=production \
-  -e DB_SERVER=192.168.8.239 \
-  -e DB_PORT=1433 \
-  -e DB_USER=sa \
-  -e DB_PASSWORD=dsc@23265946 \
-  -e DB_DATABASE=APIsync \
+  --env-file .env \
   --restart unless-stopped \
   saintdong-platform:latest
 

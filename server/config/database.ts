@@ -3,11 +3,11 @@ import { dbLogger } from '../services/LoggerService';
 //TODO : todo gcp vpn連進DB
 // SQL Server 連接配置
 const dbConfig = {
-  server: process.env.DB_SERVER || '192.168.8.239',
+  server: process.env.DB_SERVER || 'localhost',
   port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 1433,
   user: process.env.DB_USER || 'sa',
-  password: process.env.DB_PASSWORD || 'dsc@23265946',
-  database: process.env.DB_DATABASE || 'APIsync',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_DATABASE || 'your_database',
   options: {
     encrypt: false, // 本地網路不需要加密
     trustServerCertificate: true, // 信任伺服器憑證
