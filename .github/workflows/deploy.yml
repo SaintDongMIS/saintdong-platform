@@ -8,8 +8,8 @@ on:
 
 jobs:
     deploy:
-        # 使用 GitHub 提供的虛擬機來執行任務
-        runs-on: ubuntu-latest
+        # 改為使用自架的 Runner
+        runs-on: self-hosted
 
         steps:
             - name: Deploy to NAS via SSH
