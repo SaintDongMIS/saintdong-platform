@@ -1,0 +1,27 @@
+name: Deploy to Synology NAS
+
+on:
+    # 只在 push 到 main 分支時觸發
+    push:
+        branches:
+            - main
+
+jobs:
+    deploy:
+        # 使用 GitHub 提供的虛擬機來執行任務
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Deploy to NAS via SSH
+              # 使用一個受歡迎的社群 Action 來簡化 SSH 操作
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.NAS_HOST }}
+                  username: ${{ secrets.NAS_USERNAME }}
+                  key: ${{ secrets.NAS_SSH_KEY }}
+                  port: 22 # SSH 預設埠號
+                  # 在 NAS 上執行的指令
+                  script: |
+                      cd /volume1/docker/saintdong-platform
+                      git pull origin main
+                      sudo ./deploy.sh
