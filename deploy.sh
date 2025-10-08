@@ -11,20 +11,20 @@ echo "📦 拉取最新代碼..."
 
 # 停止並移除舊容器
 echo "🛑 停止並移除舊容器..."
-docker stop saintdong-platform 2>/dev/null || true
-docker rm saintdong-platform 2>/dev/null || true
+/usr/local/bin/docker stop saintdong-platform 2>/dev/null || true
+/usr/local/bin/docker rm saintdong-platform 2>/dev/null || true
 
 # 移除舊映像檔
 echo "🗑️ 移除舊映像檔..."
-docker rmi saintdong-platform:latest 2>/dev/null || true
+/usr/local/bin/docker rmi saintdong-platform:latest 2>/dev/null || true
 
 # 建構新的 Docker 映像檔
 echo "🔨 建構新的 Docker 映像檔..."
-docker build -t saintdong-platform:latest .
+/usr/local/bin/docker build -t saintdong-platform:latest .
 
 # 啟動新的 Docker 容器
 echo "🚀 啟動新的 Docker 容器..."
-docker run -d \
+/usr/local/bin/docker run -d \
   --name saintdong-platform \
   -p 3000:3000 \
   --env-file .env \
@@ -37,18 +37,18 @@ sleep 5
 
 # 檢查容器狀態
 echo "✅ 部署完成！檢查容器狀態..."
-docker ps | grep saintdong-platform
+/usr/local/bin/docker ps | grep saintdong-platform
 
 # 顯示容器日誌
 echo ""
 echo "📋 容器日誌："
-docker logs --tail 20 saintdong-platform
+/usr/local/bin/docker logs --tail 20 saintdong-platform
 
 echo ""
 echo "🎉 部署成功！"
 echo "📱 應用 URL: http://192.168.197.216:3000"
 echo ""
 echo "常用命令："
-echo "  查看日誌: docker logs -f saintdong-platform"
-echo "  重啟容器: docker restart saintdong-platform"
-echo "  停止容器: docker stop saintdong-platform"
+echo "  查看日誌: /usr/local/bin/docker logs -f saintdong-platform"
+echo "  重啟容器: /usr/local/bin/docker restart saintdong-platform"
+echo "  停止容器: /usr/local/bin/docker stop saintdong-platform"
