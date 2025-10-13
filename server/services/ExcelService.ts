@@ -97,7 +97,11 @@ export class ExcelService {
     if (!sheetName) {
       throw new Error('Excel 檔案中沒有找到工作表');
     }
-    return workbook.Sheets[sheetName];
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) {
+      throw new Error(`工作表 "${sheetName}" 不存在或為空`);
+    }
+    return worksheet;
   }
 
   /**
@@ -122,15 +126,18 @@ export class ExcelService {
    * 提取標題行
    */
   private static async extractHeaders(jsonData: any[][]): Promise<string[]> {
-    const headers = jsonData[0] as string[];
+    const headers = jsonData[0];
     if (!headers || headers.length === 0) {
       throw new Error('Excel 檔案沒有標題行');
     }
-    return headers;
+    // 確保只返回有效的字串標頭，並進行類型斷言
+    return headers.filter((header) => {
+      return typeof header === 'string' && header.trim() !== '';
+    }) as string[];
   }
 
   /**
-   * 處理資料行
+   * 處理資料行，增加對主-從結構資料的支援
    */
   private static async processDataRows(
     jsonData: any[][],
@@ -139,43 +146,70 @@ export class ExcelService {
     const dataRows = jsonData.slice(1) as any[][];
     const processedRows: ExcelRow[] = [];
     let skippedRows = 0;
+    let lastMasterRow: ExcelRow | null = null; // 用於記住上一筆主紀錄
 
     for (const row of dataRows) {
-      const shouldSkip = this.shouldSkipRow(row, headers);
-      if (shouldSkip) {
+      // 1. 首先，檢查是否為完全空行，是則跳過
+      if (this.isEmptyRow(row)) {
         skippedRows++;
         continue;
       }
 
-      const processedRow = this.processRow(row, headers);
-      // 檢查是否因為表單狀態被跳過
-      if (processedRow === null) {
-        skippedRows++;
-        continue;
+      const isMasterRow = !this.isFormNumberEmpty(row, headers);
+      let currentRowObject: ExcelRow;
+
+      if (isMasterRow) {
+        // 2. 如果是主紀錄 (有表單編號)
+        const processedRow = this.processRow(row, headers);
+
+        // 檢查是否因表單狀態等原因被過濾
+        if (processedRow === null) {
+          skippedRows++;
+          lastMasterRow = null; // 如果主紀錄無效，則後續的從屬紀錄也無效
+          continue;
+        }
+
+        currentRowObject = processedRow;
+        lastMasterRow = currentRowObject; // 記住這筆主紀錄
+      } else {
+        // 3. 如果是從屬紀錄 (沒有表單編號)
+        if (!lastMasterRow) {
+          // 如果沒有可以繼承的主紀錄，則跳過此行
+          excelLogger.warn('發現沒有主紀錄的從屬資料行，已跳過', { row });
+          skippedRows++;
+          continue;
+        }
+
+        // 建立主紀錄的複本
+        const newRowObject = { ...lastMasterRow };
+
+        // 用從屬紀錄的非空欄位覆寫複本
+        headers.forEach((header, index) => {
+          const value = row[index];
+          if (
+            value !== null &&
+            value !== undefined &&
+            String(value).trim() !== ''
+          ) {
+            const cleanedValue = this.cleanValue(value, header);
+            const cleanedHeader = this.cleanHeaderName(header);
+            newRowObject[cleanedHeader] = cleanedValue;
+          }
+        });
+
+        // 特別處理：確保從屬行的會計科目設定也能被應用
+        this.handlePrepaymentForm(newRowObject);
+
+        // 根據業務規則二次清理繼承的資料
+        this.sanitizeInheritedData(newRowObject, lastMasterRow);
+
+        currentRowObject = newRowObject;
       }
 
-      processedRows.push(processedRow);
+      processedRows.push(currentRowObject);
     }
 
     return { processedRows, skippedRows };
-  }
-
-  /**
-   * 判斷是否應該跳過該行
-   */
-  private static shouldSkipRow(row: any[], headers: string[]): boolean {
-    // 檢查是否為空行
-    if (this.isEmptyRow(row)) {
-      return true;
-    }
-
-    // 檢查表單編號是否為空
-    if (this.isFormNumberEmpty(row, headers)) {
-      excelLogger.debug('跳過表單編號為空的資料行 (可能是稅額行)', { row });
-      return true;
-    }
-
-    return false;
   }
 
   /**
@@ -347,6 +381,10 @@ export class ExcelService {
 
     // 檢查第一筆資料的格式
     const firstRow = data.rows[0];
+    if (!firstRow) {
+      // 雖然前面檢查過 length > 0，但為了類型安全再檢查一次
+      throw new Error('Excel 檔案中沒有有效的資料行');
+    }
     for (const field of requiredFields) {
       if (!firstRow[field] || firstRow[field].toString().trim() === '') {
         throw new Error(`第一筆資料的欄位 "${field}" 不能為空`);
@@ -384,6 +422,40 @@ export class ExcelService {
       excelLogger.info(`已清理暫存檔案: ${filePath}`);
     } catch (error) {
       excelLogger.error('清理檔案失敗', error);
+    }
+  }
+
+  /**
+   * 根據業務規則清理繼承來的資料，確保從屬紀錄的合理性
+   */
+  private static sanitizeInheritedData(
+    detailRow: ExcelRow,
+    masterRow: ExcelRow
+  ): void {
+    // 規則一：處理稅額分錄
+    if (detailRow['會計科目'] === '進項稅額') {
+      // 清理不相關的金額欄位
+      detailRow['項目原幣金額'] = '0';
+      detailRow['項目本幣金額'] = '0';
+      detailRow['發票未稅金額'] = '0';
+      detailRow['發票含稅金額'] = '0';
+      detailRow['分攤金額'] = '0';
+
+      // 清理不相關的文字欄位，使其更清晰
+      detailRow['費用項目'] = '進項稅額';
+      detailRow['分攤參與部門'] = '';
+      return; // 稅額行處理完畢，直接返回
+    }
+
+    // 規則二：處理費用分攤分錄 (當分攤部門改變時)
+    const detailDept = detailRow['分攤參與部門'];
+    const masterDept = masterRow['分攤參與部門'];
+
+    if (detailDept && masterDept && detailDept !== masterDept) {
+      // 這是分攤行，清理發票層級的總額資訊
+      detailRow['發票未稅金額'] = '0';
+      detailRow['發票含稅金額'] = '0';
+      // 保留分攤金額 (detailRow['分攤金額'])
     }
   }
 }
