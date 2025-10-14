@@ -143,73 +143,126 @@ export class ExcelService {
     jsonData: any[][],
     headers: string[]
   ): Promise<{ processedRows: ExcelRow[]; skippedRows: number }> {
-    const dataRows = jsonData.slice(1) as any[][];
-    const processedRows: ExcelRow[] = [];
-    let skippedRows = 0;
-    let lastMasterRow: ExcelRow | null = null; // 用於記住上一筆主紀錄
+    const dataRows = jsonData.slice(1);
 
-    for (const row of dataRows) {
-      // 1. 首先，檢查是否為完全空行，是則跳過
+    const initialState = {
+      processedRows: [] as ExcelRow[],
+      skippedRows: 0,
+      lastMasterRow: null as ExcelRow | null,
+    };
+
+    const finalState = dataRows.reduce((state, row) => {
+      // 過濾完全空行
       if (this.isEmptyRow(row)) {
-        skippedRows++;
-        continue;
+        return { ...state, skippedRows: state.skippedRows + 1 };
       }
 
-      const isMasterRow = !this.isFormNumberEmpty(row, headers);
-      let currentRowObject: ExcelRow;
+      // 根據是否有表單編號，分派給不同的處理器
+      const isDetailRow = this.isFormNumberEmpty(row, headers);
 
-      if (isMasterRow) {
-        // 2. 如果是主紀錄 (有表單編號)
-        const processedRow = this.processRow(row, headers);
+      return isDetailRow
+        ? this.handleDetailRow(state, row, headers)
+        : this.handleMasterRow(state, row, headers);
+    }, initialState);
 
-        // 檢查是否因表單狀態等原因被過濾
-        if (processedRow === null) {
-          skippedRows++;
-          lastMasterRow = null; // 如果主紀錄無效，則後續的從屬紀錄也無效
-          continue;
-        }
+    return {
+      processedRows: finalState.processedRows,
+      skippedRows: finalState.skippedRows,
+    };
+  }
 
-        currentRowObject = processedRow;
-        lastMasterRow = currentRowObject; // 記住這筆主紀錄
-      } else {
-        // 3. 如果是從屬紀錄 (沒有表單編號)
-        if (!lastMasterRow) {
-          // 如果沒有可以繼承的主紀錄，則跳過此行
-          excelLogger.warn('發現沒有主紀錄的從屬資料行，已跳過', { row });
-          skippedRows++;
-          continue;
-        }
+  /**
+   * 處理主紀錄（有表單編號）
+   */
+  private static handleMasterRow(
+    state: {
+      processedRows: ExcelRow[];
+      skippedRows: number;
+      lastMasterRow: ExcelRow | null;
+    },
+    row: any[],
+    headers: string[]
+  ): typeof state {
+    const processedRow = this.processRow(row, headers);
 
-        // 建立主紀錄的複本
-        const newRowObject = { ...lastMasterRow };
-
-        // 用從屬紀錄的非空欄位覆寫複本
-        headers.forEach((header, index) => {
-          const value = row[index];
-          if (
-            value !== null &&
-            value !== undefined &&
-            String(value).trim() !== ''
-          ) {
-            const cleanedValue = this.cleanValue(value, header);
-            const cleanedHeader = this.cleanHeaderName(header);
-            newRowObject[cleanedHeader] = cleanedValue;
-          }
-        });
-
-        // 特別處理：確保從屬行的會計科目設定也能被應用
-        this.handlePrepaymentForm(newRowObject);
-
-        // 根據業務規則二次清理繼承的資料
-        this.sanitizeInheritedData(newRowObject, lastMasterRow);
-
-        currentRowObject = newRowObject;
-      }
-
-      processedRows.push(currentRowObject);
+    // 檢查是否因表單狀態等原因被過濾
+    if (processedRow === null) {
+      return {
+        ...state,
+        skippedRows: state.skippedRows + 1,
+        lastMasterRow: null, // 如果主紀錄無效，則後續的從屬紀錄也無效
+      };
     }
 
-    return { processedRows, skippedRows };
+    // 成功處理主紀錄
+    return {
+      ...state,
+      processedRows: [...state.processedRows, processedRow],
+      lastMasterRow: processedRow,
+    };
+  }
+
+  /**
+   * 處理從屬紀錄（沒有表單編號）
+   */
+  private static handleDetailRow(
+    state: {
+      processedRows: ExcelRow[];
+      skippedRows: number;
+      lastMasterRow: ExcelRow | null;
+    },
+    row: any[],
+    headers: string[]
+  ): typeof state {
+    // 驗證：沒有主紀錄
+    if (!state.lastMasterRow) {
+      excelLogger.warn('發現沒有主紀錄的從屬資料行，已跳過', { row });
+      return { ...state, skippedRows: state.skippedRows + 1 };
+    }
+
+    // 驗證：空殼紀錄
+    if (this.isEmptyDetailRow(row, headers)) {
+      excelLogger.debug('發現無意義的空殼從屬紀錄，已跳過', {
+        masterFormNumber: state.lastMasterRow['表單編號'],
+      });
+      return { ...state, skippedRows: state.skippedRows + 1 };
+    }
+
+    // 建立並處理從屬紀錄
+    const detailRow = this.mergeDetailWithMaster(
+      row,
+      headers,
+      state.lastMasterRow
+    );
+    this.handlePrepaymentForm(detailRow);
+    this.sanitizeInheritedData(detailRow, state.lastMasterRow);
+
+    // 成功處理從屬紀錄
+    return {
+      ...state,
+      processedRows: [...state.processedRows, detailRow],
+    };
+  }
+
+  /**
+   * 合併從屬紀錄到主紀錄
+   */
+  private static mergeDetailWithMaster(
+    row: any[],
+    headers: string[],
+    masterRow: ExcelRow
+  ): ExcelRow {
+    const detailRow = { ...masterRow };
+
+    headers.forEach((header, index) => {
+      const value = row[index];
+      if (!this.isValueEmpty(value)) {
+        const cleanedHeader = this.cleanHeaderName(header);
+        detailRow[cleanedHeader] = this.cleanValue(value, header);
+      }
+    });
+
+    return detailRow;
   }
 
   /**
@@ -241,6 +294,43 @@ export class ExcelService {
       formNumber === '' ||
       (typeof formNumber === 'string' && formNumber.trim() === '')
     );
+  }
+
+  /**
+   * 檢查從屬紀錄是否為無意義的空殼紀錄
+   * 判斷標準：除了「憑證類別」之外，所有關鍵財務欄位都為空
+   */
+  private static isEmptyDetailRow(row: any[], headers: string[]): boolean {
+    const keyFinancialFields = [
+      '費用項目',
+      '項目原幣金額',
+      '項目本幣金額',
+      '分攤金額',
+      '會計科目',
+      '會計科目代號',
+      '會計科目原幣金額',
+      '稅額',
+      '發票未稅金額',
+      '發票含稅金額',
+      '發票號碼',
+      '賣方統編',
+    ];
+
+    // 所有關鍵財務欄位都為空時，才是空殼紀錄
+    return keyFinancialFields.every((field) => {
+      const fieldIndex = headers.indexOf(field);
+      if (fieldIndex < 0) return true; // 找不到欄位視為空
+      return this.isValueEmpty(row[fieldIndex]);
+    });
+  }
+
+  /**
+   * 檢查值是否為空
+   */
+  private static isValueEmpty(value: any): boolean {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'string' && value.trim() === '') return true;
+    return false;
   }
 
   /**
@@ -352,7 +442,7 @@ export class ExcelService {
     if (/^\d+$/.test(value)) {
       const excelDate = parseInt(value);
       const date = new Date((excelDate - 25569) * 86400 * 1000);
-      return date.toISOString().split('T')[0]; // YYYY-MM-DD 格式
+      return date.toISOString().split('T')[0] || ''; // YYYY-MM-DD 格式
     } else {
       // 將 2025/09/18 格式轉換為 2025-09-18
       return value.replace(/\//g, '-');
@@ -366,29 +456,54 @@ export class ExcelService {
     data: ProcessedExcelData,
     requiredFields: string[]
   ): void {
+    this.validateHasRows(data);
+    this.validateRequiredHeaders(data.headers, requiredFields);
+    this.validateFirstRowData(data.rows, requiredFields);
+  }
+
+  /**
+   * 驗證是否有資料行
+   */
+  private static validateHasRows(data: ProcessedExcelData): void {
     if (data.rows.length === 0) {
       throw new Error('Excel 檔案中沒有有效資料');
     }
+  }
 
-    // 檢查必要欄位
+  /**
+   * 驗證必要欄位是否存在於標題中
+   */
+  private static validateRequiredHeaders(
+    headers: string[],
+    requiredFields: string[]
+  ): void {
     const missingFields = requiredFields.filter(
-      (field) => !data.headers.includes(field)
+      (field) => !headers.includes(field)
     );
 
     if (missingFields.length > 0) {
       throw new Error(`缺少必要欄位: ${missingFields.join(', ')}`);
     }
+  }
 
-    // 檢查第一筆資料的格式
-    const firstRow = data.rows[0];
+  /**
+   * 驗證第一筆資料的必要欄位是否有值
+   */
+  private static validateFirstRowData(
+    rows: ExcelRow[],
+    requiredFields: string[]
+  ): void {
+    const firstRow = rows[0];
     if (!firstRow) {
-      // 雖然前面檢查過 length > 0，但為了類型安全再檢查一次
       throw new Error('Excel 檔案中沒有有效的資料行');
     }
-    for (const field of requiredFields) {
-      if (!firstRow[field] || firstRow[field].toString().trim() === '') {
-        throw new Error(`第一筆資料的欄位 "${field}" 不能為空`);
-      }
+
+    const emptyField = requiredFields.find((field) =>
+      this.isValueEmpty(firstRow[field])
+    );
+
+    if (emptyField) {
+      throw new Error(`第一筆資料的欄位 "${emptyField}" 不能為空`);
     }
   }
 

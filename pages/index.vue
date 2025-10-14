@@ -167,6 +167,11 @@
           </label>
           <div
             class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors"
+            @dragover.prevent="isDragOver = true"
+            @dragleave.prevent="isDragOver = false"
+            @drop.prevent="handleFileDrop"
+            @click="$refs.fileInput.click()"
+            :class="{ 'border-blue-400 bg-blue-50': isDragOver }"
           >
             <input
               ref="fileInput"
@@ -175,11 +180,7 @@
               @change="handleFileSelect"
               class="hidden"
             />
-            <div
-              v-if="!selectedFile"
-              @click="$refs.fileInput.click()"
-              class="cursor-pointer"
-            >
+            <div v-if="!selectedFile" class="cursor-pointer">
               <svg
                 class="mx-auto h-12 w-12 text-gray-400"
                 stroke="currentColor"
@@ -394,6 +395,7 @@ import { ref } from 'vue';
 const selectedFile = ref(null);
 const isUploading = ref(false);
 const uploadResult = ref(null);
+const isDragOver = ref(false);
 
 // 彈窗通知相關狀態
 const showNotification = ref(false);
@@ -405,32 +407,46 @@ const notificationErrors = ref([]);
 const handleFileSelect = (event) => {
   const file = event.target.files[0];
   if (file) {
-    const allowedTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel',
-      'text/csv',
-      'application/csv',
-    ];
-
-    const allowedExtensions = ['.xlsx', '.xls', '.csv'];
-    const fileExtension = file.name
-      .toLowerCase()
-      .substring(file.name.lastIndexOf('.'));
-
-    if (
-      !allowedTypes.includes(file.type) &&
-      !allowedExtensions.includes(fileExtension)
-    ) {
-      uploadResult.value = {
-        success: false,
-        message: '請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)',
-      };
-      return;
-    }
-
-    selectedFile.value = file;
-    uploadResult.value = null;
+    validateAndSetFile(file);
   }
+};
+
+const handleFileDrop = (event) => {
+  event.preventDefault();
+  isDragOver.value = false;
+  const files = event.dataTransfer.files;
+  if (files.length > 0) {
+    const file = files[0];
+    validateAndSetFile(file);
+  }
+};
+
+const validateAndSetFile = (file) => {
+  const allowedTypes = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'text/csv',
+    'application/csv',
+  ];
+
+  const allowedExtensions = ['.xlsx', '.xls', '.csv'];
+  const fileExtension = file.name
+    .toLowerCase()
+    .substring(file.name.lastIndexOf('.'));
+
+  if (
+    !allowedTypes.includes(file.type) &&
+    !allowedExtensions.includes(fileExtension)
+  ) {
+    uploadResult.value = {
+      success: false,
+      message: '請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)',
+    };
+    return;
+  }
+
+  selectedFile.value = file;
+  uploadResult.value = null;
 };
 
 const clearFile = () => {
