@@ -80,19 +80,10 @@
       <div class="overflow-x-auto">
         <table
           class="w-full divide-y divide-gray-200"
-          style="min-width: 1200px"
+          style="min-width: 1100px"
         >
           <thead class="bg-gray-50">
             <tr>
-              <th
-                class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                style="width: 60px"
-              >
-                <input
-                  type="checkbox"
-                  class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-              </th>
               <th
                 class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                 style="width: 140px"
@@ -143,12 +134,6 @@
               :key="report.EFid"
               class="hover:bg-gray-50"
             >
-              <td class="px-3 py-4 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-              </td>
               <td class="px-3 py-4 whitespace-nowrap">
                 <div class="text-sm font-medium text-gray-900">
                   {{ report.表單編號 }}
