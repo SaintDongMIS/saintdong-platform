@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { promises as fs } from 'fs';
 import { DataEnrichmentService } from './DataEnrichmentService';
+import { PaymentInheritanceService } from './PaymentInheritanceService';
 import { excelLogger } from './LoggerService';
 
 export interface ExcelRow {
@@ -44,11 +45,21 @@ export class ExcelService {
         skippedRows: skippedRows,
       });
 
+      // 建立預先付款單索引
+      const prepaymentIndex =
+        PaymentInheritanceService.buildPrepaymentIndex(processedRows);
+
+      // 為費用報銷單繼承付款資訊
+      const enrichedRows = PaymentInheritanceService.enrichPaymentInfo(
+        processedRows,
+        prepaymentIndex
+      );
+
       return {
         headers,
-        rows: processedRows,
+        rows: enrichedRows,
         totalRows: jsonData.length - 1, // 減去標題行
-        validRows: processedRows.length,
+        validRows: enrichedRows.length,
         skippedRows,
       };
     } catch (error) {
