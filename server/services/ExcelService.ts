@@ -563,8 +563,6 @@ export class ExcelService {
       // 清理不相關的金額欄位
       detailRow['項目原幣金額'] = '0';
       detailRow['項目本幣金額'] = '0';
-      detailRow['發票未稅金額'] = '0';
-      detailRow['發票含稅金額'] = '0';
       detailRow['分攤金額'] = '0';
 
       // 清理不相關的文字欄位，使其更清晰
