@@ -245,7 +245,7 @@ export class ExcelService {
       headers,
       state.lastMasterRow
     );
-    this.handlePrepaymentForm(detailRow);
+    // this.handlePrepaymentForm(detailRow);
     this.sanitizeInheritedData(detailRow, state.lastMasterRow);
 
     // 成功處理從屬紀錄
@@ -265,6 +265,7 @@ export class ExcelService {
   ): ExcelRow {
     const detailRow = { ...masterRow };
 
+    // 1. 原始的標準繼承邏輯 (有值才覆寫)
     headers.forEach((header, index) => {
       const value = row[index];
       if (!this.isValueEmpty(value)) {
@@ -272,6 +273,21 @@ export class ExcelService {
         detailRow[cleanedHeader] = this.cleanValue(value, header);
       }
     });
+
+    // =================================================================
+    // == 特殊規則：強制以從屬紀錄的空值覆寫特定欄位 (2025-10-21 新增) ==
+    // == 若要恢復舊版行為，可將此區塊整個註解掉。                  ==
+    // =================================================================
+    const forceOverrideFields = ['費用項目', '會計科目', '會計科目代號'];
+    forceOverrideFields.forEach((field) => {
+      const headerIndex = headers.indexOf(field);
+      if (headerIndex !== -1) {
+        const value = row[headerIndex];
+        // 即使 value 是空的，依然進行覆寫
+        detailRow[field] = this.cleanValue(value, field);
+      }
+    });
+    // =================================================================
 
     return detailRow;
   }
@@ -369,7 +385,7 @@ export class ExcelService {
     }
 
     // 處理預先付款單的會計科目設定
-    this.handlePrepaymentForm(rowObject);
+    // this.handlePrepaymentForm(rowObject);
 
     return rowObject;
   }
@@ -566,7 +582,7 @@ export class ExcelService {
       detailRow['分攤金額'] = '0';
 
       // 清理不相關的文字欄位，使其更清晰
-      detailRow['費用項目'] = '進項稅額';
+      // detailRow['費用項目'] = '進項稅額';
       detailRow['分攤參與部門'] = '';
       return; // 稅額行處理完畢，直接返回
     }
