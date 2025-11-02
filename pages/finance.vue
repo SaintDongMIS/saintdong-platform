@@ -404,6 +404,8 @@
 
 <script setup>
 import { ref } from 'vue';
+import { useExcelValidator } from '~/composables/useExcelValidator';
+import { financeValidationConfig } from '~/utils/departmentConfig';
 
 const activeTab = ref('reports');
 const selectedFile = ref(null);
@@ -434,27 +436,40 @@ const handleFileDrop = (event) => {
   }
 };
 
-const validateAndSetFile = (file) => {
-  const allowedTypes = [
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-excel',
-    'text/csv',
-    'application/csv',
-  ];
+const validateAndSetFile = async (file) => {
+  // 1. 基本檔案類型檢查
   const allowedExtensions = ['.xlsx', '.xls', '.csv'];
   const fileExtension = file.name
     .toLowerCase()
     .substring(file.name.lastIndexOf('.'));
 
-  if (
-    !allowedTypes.includes(file.type) &&
-    !allowedExtensions.includes(fileExtension)
-  ) {
+  if (!allowedExtensions.includes(fileExtension)) {
     alert('請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)');
     return;
   }
 
-  selectedFile.value = file;
+  // 2. Excel 標頭驗證
+  isUploading.value = true; // 顯示處理中狀態
+  try {
+    const validationResult = await useExcelValidator(
+      file,
+      financeValidationConfig
+    );
+
+    if (!validationResult.isValid) {
+      alert(validationResult.message);
+      clearFile(); // 清除無效檔案
+      return;
+    }
+
+    // 驗證通過
+    selectedFile.value = file;
+  } catch (error) {
+    console.error('檔案驗證時發生錯誤:', error);
+    alert('檔案驗證失敗，請稍後再試。');
+  } finally {
+    isUploading.value = false;
+  }
 };
 
 const clearFile = () => {
