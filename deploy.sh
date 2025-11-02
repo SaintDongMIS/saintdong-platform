@@ -5,10 +5,6 @@ echo "🚀 開始自動部署 SaintDong Platform..."
 # 進入專案目錄
 cd /volume1/docker/saintdong-platform
 
-# 拉取最新代碼（如果使用 Git）
-echo "📦 拉取最新代碼..."
-# git pull origin main
-
 # 停止並移除舊容器
 echo "🛑 停止並移除舊容器..."
 /usr/local/bin/docker stop saintdong-platform 2>/dev/null || true
@@ -20,7 +16,15 @@ echo "🗑️ 移除舊映像檔..."
 
 # 建構新的 Docker 映像檔
 echo "🔨 建構新的 Docker 映像檔..."
-/usr/local/bin/docker build -t saintdong-platform:latest .
+if ! /usr/local/bin/docker build -t saintdong-platform:latest .; then
+    echo "❌ Docker 映像檔建構失敗！"
+    exit 1
+fi
+
+# 檢查 .env 檔案是否存在
+if [ ! -f .env ]; then
+    echo "⚠️  警告: .env 檔案不存在，容器可能無法正常啟動"
+fi
 
 # 啟動新的 Docker 容器
 echo "🚀 啟動新的 Docker 容器..."
@@ -37,7 +41,12 @@ sleep 5
 
 # 檢查容器狀態
 echo "✅ 部署完成！檢查容器狀態..."
-/usr/local/bin/docker ps | grep saintdong-platform
+if ! /usr/local/bin/docker ps | grep -q saintdong-platform; then
+    echo "❌ 容器未成功啟動！"
+    /usr/local/bin/docker ps -a | grep saintdong-platform
+    exit 1
+fi
+echo "✅ 容器運行正常"
 
 # 顯示容器日誌
 echo ""

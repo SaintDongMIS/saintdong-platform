@@ -10,6 +10,8 @@ jobs:
     deploy:
         # 改為使用自架的 Runner
         runs-on: self-hosted
+        # 設定超時時間（避免部署卡住）
+        timeout-minutes: 30
 
         steps:
             - name: Deploy to NAS via SSH
