@@ -1,12 +1,12 @@
 import { defineEventHandler } from 'h3';
-import { ExcelService } from '../services/ExcelService';
-import { DatabaseService } from '../services/DatabaseService';
-import { TableMigrationService } from '../services/TableMigrationService';
-import { FileUploadHandler } from '../utils/fileUploadHandler';
-import { ErrorHandler } from '../utils/errorHandler';
-import { UploadConfig } from '../constants/uploadConfig';
-import { LogMessages } from '../constants/logMessages';
-import { uploadLogger } from '../services/LoggerService';
+import { ExcelService } from '../../services/ExcelService';
+import { DatabaseService } from '../../services/DatabaseService';
+import { TableMigrationService } from '../../services/TableMigrationService';
+import { FileUploadHandler } from '../../utils/fileUploadHandler';
+import { ErrorHandler } from '../../utils/errorHandler';
+import { UploadConfig } from '../../constants/uploadConfig';
+import { LogMessages } from '../../constants/logMessages';
+import { uploadLogger } from '../../services/LoggerService';
 
 /**
  * 檔案上傳處理狀態
@@ -17,6 +17,13 @@ interface UploadState {
   dbResult?: any;
 }
 
+/**
+ * 財務部檔案上傳 API
+ *
+ * POST /api/upload/finance
+ *
+ * 保持現有邏輯不變，確保財務部功能完全不受影響
+ */
 export default defineEventHandler(async (event) => {
   let uploadedFile: Express.Multer.File | null = null;
 

@@ -8,16 +8,26 @@ import { uploadLogger } from './LoggerService';
  */
 export class TableMigrationService {
   /**
-   * 確保資料表結構是最新的
+   * 確保資料表結構是最新的（重構版 - 向後相容）
+   *
+   * @param tableName 資料表名稱
+   * @param schema 可選的 schema，如果不提供則使用預設（財務部）
+   *                此參數確保向後相容，財務部現有邏輯無需修改
    */
-  static async ensureTableStructure(tableName: string): Promise<void> {
+  static async ensureTableStructure(
+    tableName: string,
+    schema?: string
+  ): Promise<void> {
     const pool = await getConnectionPool();
     const exists = await this.checkTableExists(pool, tableName);
 
+    // ✅ 向後相容：如果沒有提供 schema，使用財務部的預設 schema
+    const tableSchema = schema || reimbursementTableSchema;
+
     if (!exists) {
-      await this.createTable(pool, tableName);
+      await this.createTable(pool, tableName, tableSchema);
     } else {
-      await this.migrateTableStructure(pool, tableName);
+      await this.migrateTableStructure(pool, tableName, tableSchema);
     }
   }
 
@@ -43,34 +53,36 @@ export class TableMigrationService {
   }
 
   /**
-   * 建立資料表
+   * 建立資料表（重構版 - 接受 schema 參數）
    */
   private static async createTable(
     pool: any,
-    tableName: string
+    tableName: string,
+    schema: string
   ): Promise<void> {
-    uploadLogger.info('資料表不存在，建立新資料表');
+    uploadLogger.info('資料表不存在，建立新資料表', { tableName });
 
     const createTableQuery = `
       CREATE TABLE ${tableName} (
-        ${reimbursementTableSchema}
+        ${schema}
       )
     `;
 
     await pool.request().query(createTableQuery);
-    uploadLogger.info('新資料表建立成功');
+    uploadLogger.info('新資料表建立成功', { tableName });
   }
 
   /**
-   * 遷移資料表結構 - 只新增缺少的欄位
+   * 遷移資料表結構 - 只新增缺少的欄位（重構版 - 接受 schema 參數）
    */
   private static async migrateTableStructure(
     pool: any,
-    tableName: string
+    tableName: string,
+    schema: string
   ): Promise<void> {
-    uploadLogger.info('資料表已存在，檢查結構是否需要更新');
+    uploadLogger.info('資料表已存在，檢查結構是否需要更新', { tableName });
 
-    const expectedColumns = this.parseSchemaColumns(reimbursementTableSchema);
+    const expectedColumns = this.parseSchemaColumns(schema);
     const existingColumns = await this.getExistingColumns(pool, tableName);
     const columnsToAdd = this.findMissingColumns(
       expectedColumns,
@@ -78,12 +90,12 @@ export class TableMigrationService {
     );
 
     if (columnsToAdd.length === 0) {
-      uploadLogger.info('資料表結構已是最新版本，無需更新');
+      uploadLogger.info('資料表結構已是最新版本，無需更新', { tableName });
       return;
     }
 
     await this.addColumns(pool, tableName, columnsToAdd);
-    uploadLogger.info('資料表結構遷移完成');
+    uploadLogger.info('資料表結構遷移完成', { tableName });
   }
 
   /**
@@ -231,7 +243,9 @@ export class TableMigrationService {
       col.definition.length > 0 &&
       !col.definition.includes('PRIMARY KEY') &&
       !col.definition.includes('IDENTITY') &&
-      !col.definition.includes('DEFAULT')
+      !col.definition.includes('DEFAULT') &&
+      !col.definition.includes('CONSTRAINT') && // ✅ 過濾 CONSTRAINT 定義
+      !col.definition.includes('UNIQUE') // ✅ 過濾 UNIQUE 約束
     );
   }
 }

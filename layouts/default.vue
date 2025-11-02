@@ -15,10 +15,21 @@
           <!-- 部門切換 -->
           <div class="flex space-x-1">
             <NuxtLink
-              to="/"
+              to="/road-construction"
               class="px-4 py-2 rounded-md text-sm font-medium"
               :class="
-                isActive('/')
+                isActive('/road-construction')
+                  ? 'bg-orange-100 text-orange-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              "
+            >
+              道路施工部
+            </NuxtLink>
+            <NuxtLink
+              to="/finance"
+              class="px-4 py-2 rounded-md text-sm font-medium"
+              :class="
+                isActive('/finance')
                   ? 'bg-blue-100 text-blue-700'
                   : 'text-gray-600 hover:bg-gray-100'
               "
@@ -65,9 +76,6 @@ import { useRoute } from 'vue-router';
 const route = useRoute();
 
 const isActive = (path) => {
-  if (path === '/') {
-    return route.path === '/';
-  }
-  return route.path.startsWith(path);
+  return route.path === path || route.path.startsWith(path + '/');
 };
 </script>

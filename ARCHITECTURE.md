@@ -90,8 +90,10 @@ frontend/
 
 API 端點定義在 `server/api/` 目錄下，例如：
 
-- `POST /api/upload`: 處理檔案上傳
-- `POST /api/create-table`: 建立資料表
+- `POST /api/upload/finance`: 處理財務部檔案上傳
+- `POST /api/upload/road-construction`: 處理道路施工部檔案上傳
+- `POST /api/create-table`: 建立財務部資料表
+- `POST /api/create-table-road-construction`: 建立道路施工部資料表
 - `POST /api/update-table`: 更新資料表結構
 - `GET /api/table-info`: 取得資料表資訊
 
@@ -101,6 +103,44 @@ API 端點定義在 `server/api/` 目錄下，例如：
 - **資料庫操作**: 透過 `DatabaseService` 執行 SQL 操作。
 - **資料表定義**: 透過 `TableDefinitionService` 統一管理資料表 Schema。
 - **錯誤處理**: 統一的錯誤回應機制。
+
+### 多部門架構設計
+
+為了支援多個部門（財務部、道路施工部等）的獨立資料處理需求，系統採用了**部門配置系統**和**通用上傳處理器**的設計：
+
+#### 1. 部門配置系統 (`departmentConfig.ts`)
+
+- **目的**: 集中管理各部門的配置，包括資料表名稱、必要欄位、Schema、Excel 解析器等
+- **設計原則**:
+  - 財務部配置完全重用現有服務，確保向後相容
+  - 道路施工部使用專屬解析器處理樞紐表結構
+  - 完全隔離，互不影響
+
+#### 2. 通用上傳處理器 (`UploadProcessor`)
+
+- **目的**: 根據部門配置執行完整的上傳流程
+- **處理流程**:
+  1. 驗證資料庫連接
+  2. 使用部門專屬解析器解析 Excel
+  3. 驗證資料
+  4. 可選的資料擴充（如財務部的銀行資料擴充）
+  5. 確保資料表結構（使用部門專屬 Schema）
+  6. 批次插入資料庫
+  7. 回傳處理結果
+
+#### 3. 部門專屬解析服務
+
+- **財務部**: 使用 `ExcelService.parseExcel()` 處理標準表格結構
+- **道路施工部**: 使用 `RoadConstructionExcelService.parsePivotTableExcel()` 處理樞紐表結構
+  - 自動從檔名提取派工單號
+  - 正規化樞紐表資料（項目 × 日期 → 多筆紀錄）
+  - 過濾統計欄位（總計、合計等）
+
+#### 4. 資料表 Schema 管理
+
+- **財務部**: `ExpendForm` (使用 `reimbursementTableSchema`)
+- **道路施工部**: `RoadConstructionForm` (使用 `roadConstructionTableSchema`)
+- **自動遷移**: `TableMigrationService` 支援可選的 schema 參數，確保向後相容
 
 ### 核心業務邏輯亮點
 
@@ -131,14 +171,25 @@ API 端點定義在 `server/api/` 目錄下，例如：
 ```
 server/
 ├── api/              # API 路由端點
-│   ├── upload.post.ts
+│   ├── upload/
+│   │   ├── finance.post.ts                # 財務部上傳
+│   │   └── road-construction.post.ts      # 道路施工部上傳
+│   ├── create-table.post.ts               # 財務部資料表建立
+│   ├── create-table-road-construction.post.ts  # 道路施工部資料表建立
 │   └── ...
 ├── services/         # 核心業務邏輯
 │   ├── DatabaseService.ts
-│   ├── ExcelService.ts
-│   └── TableDefinitionService.ts
+│   ├── ExcelService.ts                    # 財務部 Excel 解析
+│   ├── RoadConstructionExcelService.ts   # 道路施工部 Excel 解析（新增）
+│   ├── TableDefinitionService.ts         # 統一管理所有資料表 Schema
+│   └── TableMigrationService.ts          # 資料表遷移（支援多部門）
+├── utils/            # 工具函數
+│   ├── uploadProcessor.ts                # 通用上傳處理器（新增）
+│   ├── fileUploadHandler.ts
+│   └── errorHandler.ts
 └── config/           # 設定檔
     ├── database.ts
+    ├── departmentConfig.ts               # 部門配置系統（新增）
     └── bankCodes.json
 ```
 

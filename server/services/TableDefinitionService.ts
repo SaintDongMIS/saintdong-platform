@@ -77,3 +77,32 @@ export const reimbursementTableSchema = `
   [建立時間] DATETIME DEFAULT GETDATE(),
   [更新時間] DATETIME DEFAULT GETDATE()
 `;
+
+/**
+ * 道路施工部資料表 Schema
+ *
+ * 資料來源：對帳工務所 Excel 樞紐表
+ * 結構：派工單號 × 項目名稱 × 日期 → 數量金額
+ *
+ * 設計說明：
+ * 1. 將 Excel 樞紐表（項目 × 日期）正規化為關聯式資料
+ * 2. 每筆紀錄代表：某派工單號、某項目、某日期的數量/金額
+ * 3. 採用技術主鍵 + 業務複合唯一鍵設計
+ *
+ * 範例資料：
+ * - 派工單號：11409004（從檔名提取，例如：對帳工務所新生高架橋11409004.xlsx）
+ * - 項目名稱：義交、熱鏟、油車、乳化瀝青等
+ * - 日期：2024-08-01, 2024-08-02...（從「8月1日」轉換為實際日期）
+ * - 數量金額：37.5, 1, 2000, 468.19 等（支援整數和小數）
+ */
+export const roadConstructionTableSchema = `
+  [RCid] INT IDENTITY(1,1) PRIMARY KEY,
+  [派工單號] NVARCHAR(50) NOT NULL,
+  [項目名稱] NVARCHAR(100) NOT NULL,
+  [日期] DATE NOT NULL,
+  [數量金額] DECIMAL(18,2) NOT NULL,
+  [備註] NVARCHAR(500),
+  [建立時間] DATETIME DEFAULT GETDATE(),
+  [更新時間] DATETIME DEFAULT GETDATE(),
+  CONSTRAINT [IX_RoadConstruction_派工單號_項目_日期] UNIQUE ([派工單號], [項目名稱], [日期])
+`;
