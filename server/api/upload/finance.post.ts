@@ -7,6 +7,7 @@ import { ErrorHandler } from '../../utils/errorHandler';
 import { UploadConfig } from '../../constants/uploadConfig';
 import { LogMessages } from '../../constants/logMessages';
 import { uploadLogger } from '../../services/LoggerService';
+import { EmailService } from '../../services/EmailService';
 
 /**
  * 檔案上傳處理狀態
@@ -38,6 +39,14 @@ export default defineEventHandler(async (event) => {
 
     // 執行處理管道
     const result = await processUploadPipeline(uploadedFile);
+
+    // 發送 Email 通知（非阻塞，不影響回應）
+    EmailService.sendUploadNotification({
+      ...result,
+      department: '財務部門',
+    }).catch((error) => {
+      uploadLogger.warn('Email 通知發送失敗（不影響上傳流程）', error);
+    });
 
     // 清理暫存檔案
     await ExcelService.cleanupFile(uploadedFile.path);

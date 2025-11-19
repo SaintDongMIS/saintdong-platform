@@ -283,13 +283,14 @@ export class DatabaseService {
     const compositeKeys = data
       .map((row) => {
         const workOrderNumber = row['派工單號']?.toString().trim() || '';
+        const vendorName = row['廠商名稱']?.toString().trim() || '';
         const itemName = row['項目名稱']?.toString().trim() || '';
         const date = row['日期']?.toString().trim() || '';
-        return `${workOrderNumber}-${itemName}-${date}`;
+        return `${workOrderNumber}-${vendorName}-${itemName}-${date}`;
       })
       .filter((key) => {
         const parts = key.split('-');
-        return parts.length === 3 && parts.every((part) => part !== '');
+        return parts.length === 4 && parts.every((part) => part !== '');
       });
 
     if (compositeKeys.length === 0) return new Set();
@@ -297,9 +298,9 @@ export class DatabaseService {
     const request = new sql.Request(transaction);
     const query = `
       SELECT DISTINCT 
-        [派工單號] + '-' + [項目名稱] + '-' + CONVERT(VARCHAR(10), [日期], 120) as composite_key
+        [派工單號] + '-' + ISNULL([廠商名稱], '') + '-' + [項目名稱] + '-' + CONVERT(VARCHAR(10), [日期], 120) as composite_key
       FROM ${tableName}
-      WHERE [派工單號] + '-' + [項目名稱] + '-' + CONVERT(VARCHAR(10), [日期], 120)
+      WHERE [派工單號] + '-' + ISNULL([廠商名稱], '') + '-' + [項目名稱] + '-' + CONVERT(VARCHAR(10), [日期], 120)
             IN (${compositeKeys.map((_, i) => `@key${i}`).join(', ')})
     `;
 
@@ -440,7 +441,8 @@ export class DatabaseService {
       columnName.includes('金額') ||
       columnName.includes('總計') ||
       columnName.includes('稅額') ||
-      columnName.includes('匯率')
+      columnName.includes('匯率') ||
+      columnName.includes('單價')
     ) {
       return sql.Decimal(18, 2);
     }

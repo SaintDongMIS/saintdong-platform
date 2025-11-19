@@ -5,6 +5,7 @@ import { UploadProcessor } from '../../utils/uploadProcessor';
 import { RoadConstructionDepartmentConfig } from '../../config/departmentConfig';
 import { ExcelService } from '../../services/ExcelService';
 import { uploadLogger } from '../../services/LoggerService';
+import { EmailService } from '../../services/EmailService';
 
 /**
  * 道路施工部檔案上傳 API
@@ -39,6 +40,11 @@ export default defineEventHandler(async (event) => {
       uploadedFile,
       RoadConstructionDepartmentConfig
     );
+
+    // 發送 Email 通知（非阻塞，不影響回應）
+    EmailService.sendUploadNotification(result).catch((error) => {
+      uploadLogger.warn('Email 通知發送失敗（不影響上傳流程）', error);
+    });
 
     // 清理暫存檔案
     await ExcelService.cleanupFile(uploadedFile.path);

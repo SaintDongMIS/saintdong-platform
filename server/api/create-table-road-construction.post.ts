@@ -1,4 +1,3 @@
-import { defineEventHandler } from 'h3';
 import { getConnectionPool } from '../config/database';
 import { roadConstructionTableSchema } from '../services/TableDefinitionService';
 import { apiLogger } from '../services/LoggerService';

@@ -98,11 +98,14 @@ export const reimbursementTableSchema = `
 export const roadConstructionTableSchema = `
   [RCid] INT IDENTITY(1,1) PRIMARY KEY,
   [派工單號] NVARCHAR(50) NOT NULL,
+  [廠商名稱] NVARCHAR(100),
   [項目名稱] NVARCHAR(100) NOT NULL,
+  [單位] NVARCHAR(50),
+  [單價] DECIMAL(18, 2),
   [日期] DATE NOT NULL,
   [數量金額] DECIMAL(18,2) NOT NULL,
   [備註] NVARCHAR(500),
   [建立時間] DATETIME DEFAULT GETDATE(),
   [更新時間] DATETIME DEFAULT GETDATE(),
-  CONSTRAINT [IX_RoadConstruction_派工單號_項目_日期] UNIQUE ([派工單號], [項目名稱], [日期])
+  CONSTRAINT [IX_RoadConstruction_Unique] UNIQUE ([派工單號], [廠商名稱], [項目名稱], [日期])
 `;

@@ -15,7 +15,10 @@ interface DateHeader {
  */
 export interface RoadConstructionRow {
   派工單號: string;
+  廠商名稱: string;
   項目名稱: string;
+  單位: string;
+  單價: number;
   日期: string; // YYYY-MM-DD
   數量金額: number;
   備註: string | null;
@@ -25,7 +28,6 @@ export interface RoadConstructionRow {
  * 道路施工部 Excel 資料介面
  */
 export interface RoadConstructionExcelData {
-  workOrderNumber: string;
   totalRecords: number;
   normalizedRows: RoadConstructionRow[];
   dateRange: {
@@ -52,16 +54,13 @@ export class RoadConstructionExcelService {
         filePath,
       });
 
-      const workOrderNumber = this.extractWorkOrderNumber(fileName);
-      excelLogger.debug('派工單號提取成功', { workOrderNumber });
-
       const workbook = await this.readExcelFile(filePath);
       const worksheet = this.getFirstWorksheet(workbook);
 
+      // 使用 sheet_to_json 直接轉換為物件陣列
       const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-        header: 1,
-        defval: '',
-      }) as any[][];
+        defval: null, // 將空值轉換為 null
+      }) as any[];
 
       if (jsonData.length === 0) {
         throw new Error('Excel 檔案為空，沒有資料');
@@ -69,43 +68,20 @@ export class RoadConstructionExcelService {
 
       excelLogger.debug('Excel 資料讀取成功', {
         totalRows: jsonData.length,
-        firstRowColumns: jsonData[0]?.length || 0,
       });
 
-      const headerRow = jsonData[0];
-      if (!headerRow) {
-        throw new Error('Excel 檔案標題列為空');
-      }
-
-      const dateHeaders = this.parseDateHeaders(headerRow);
-
-      if (dateHeaders.length === 0) {
-        throw new Error('無法從 Excel 標題列中找到有效的日期欄位');
-      }
-
-      excelLogger.debug('日期標題解析完成', {
-        dateHeadersCount: dateHeaders.length,
-        dateRange: this.extractDateRange(dateHeaders),
-      });
-
-      const normalizedRows = this.normalizePivotData(
-        jsonData.slice(1),
-        dateHeaders,
-        workOrderNumber
-      );
+      const { normalizedRows, dateHeaders } = this.normalizePivotData(jsonData);
 
       if (normalizedRows.length === 0) {
         throw new Error('Excel 檔案中沒有有效的資料行');
       }
 
       excelLogger.info('道路施工部 Excel 解析完成', {
-        workOrderNumber,
         totalRecords: normalizedRows.length,
         dateHeadersCount: dateHeaders.length,
       });
 
       return {
-        workOrderNumber,
         totalRecords: normalizedRows.length,
         normalizedRows,
         dateRange: this.extractDateRange(dateHeaders),
@@ -139,19 +115,6 @@ export class RoadConstructionExcelService {
         }`
       );
     }
-  }
-
-  /**
-   * 從檔名提取派工單號
-   */
-  private static extractWorkOrderNumber(fileName: string): string {
-    const match = fileName.match(/(\d{8})/);
-    if (!match || !match[1]) {
-      throw new Error(
-        `無法從檔名 "${fileName}" 中提取派工單號。請確認檔名包含 8 位數字（例如：對帳工務所新生高架橋11409004.xlsx）`
-      );
-    }
-    return match[1];
   }
 
   /**
@@ -260,6 +223,30 @@ export class RoadConstructionExcelService {
    */
   private static parseDateString(dateStr: string): Date | null {
     try {
+      // 支援 M/D/YY, MM/DD/YY, MM/DD/YYYY
+      const dateParts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (dateParts && dateParts[1] && dateParts[2] && dateParts[3]) {
+        const month = parseInt(dateParts[1], 10);
+        const day = parseInt(dateParts[2], 10);
+        let year = parseInt(dateParts[3], 10);
+
+        // 處理兩位數年份
+        if (year < 100) {
+          year += 2000; // 假設為 21 世紀
+        }
+
+        const date = new Date(year, month - 1, day);
+        // 驗證日期是否有效
+        if (
+          date.getFullYear() === year &&
+          date.getMonth() === month - 1 &&
+          date.getDate() === day
+        ) {
+          return date;
+        }
+      }
+
+      // 支援 M月D日
       const monthDayMatch = dateStr.match(/(\d+)月(\d+)日/);
       if (monthDayMatch && monthDayMatch[1] && monthDayMatch[2]) {
         return this.createDateFromMonthDay(
@@ -268,14 +255,7 @@ export class RoadConstructionExcelService {
         );
       }
 
-      const slashMatch = dateStr.match(/(\d+)\/(\d+)/);
-      if (slashMatch && slashMatch[1] && slashMatch[2]) {
-        return this.createDateFromMonthDay(
-          parseInt(slashMatch[1]),
-          parseInt(slashMatch[2])
-        );
-      }
-
+      // 嘗試直接解析 ISO 日期字串
       const isoDate = new Date(dateStr);
       if (!isNaN(isoDate.getTime())) {
         return isoDate;
@@ -321,116 +301,103 @@ export class RoadConstructionExcelService {
   /**
    * 正規化樞紐表資料
    */
-  private static normalizePivotData(
-    dataRows: any[][],
-    dateHeaders: DateHeader[],
-    workOrderNumber: string
-  ): RoadConstructionRow[] {
-    try {
-      const normalizedRows = dataRows
-        .map((row) => this.extractItemName(row))
-        .filter((itemName): itemName is string => itemName !== null)
-        .flatMap((itemName) =>
-          this.createRowsForItem(
-            itemName,
-            dataRows,
-            dateHeaders,
-            workOrderNumber
-          )
-        );
+  private static normalizePivotData(jsonData: any[]): {
+    normalizedRows: RoadConstructionRow[];
+    dateHeaders: DateHeader[];
+  } {
+    const normalizedRows: RoadConstructionRow[] = [];
+    const dateHeaders: DateHeader[] = [];
+    const dateHeaderMap = new Map<string, DateHeader>();
 
-      excelLogger.debug('資料正規化完成', {
-        totalRows: normalizedRows.length,
-        uniqueItems: new Set(normalizedRows.map((r) => r.項目名稱)).size,
-      });
+    for (const row of jsonData) {
+      const workOrderNumber = String(row['派工單號'] || '').trim();
+      const vendorName = String(row['廠商名稱'] || '').trim();
+      const itemName = String(row['品名'] || '').trim();
+      const unit = String(row['單位'] || '').trim();
+      const unitPrice = this.parseNumericValue(row['單價']);
 
-      return normalizedRows;
-    } catch (error) {
-      excelLogger.error('資料正規化失敗', error);
-      throw new Error(
-        `正規化 Excel 資料失敗: ${
-          error instanceof Error ? error.message : '未知錯誤'
-        }`
-      );
-    }
-  }
-
-  /**
-   * 從資料列提取項目名稱
-   */
-  private static extractItemName(row: any[]): string | null {
-    try {
-      const itemName = String(row[0] || '').trim();
-      return itemName !== '' ? itemName : null;
-    } catch (error) {
-      excelLogger.debug('提取項目名稱失敗', {
-        row: row?.slice(0, 5),
-        error: error instanceof Error ? error.message : '未知錯誤',
-      });
-      return null;
-    }
-  }
-
-  /**
-   * 為特定項目建立多筆資料行（對應每個日期）
-   */
-  private static createRowsForItem(
-    itemName: string,
-    dataRows: any[][],
-    dateHeaders: DateHeader[],
-    workOrderNumber: string
-  ): RoadConstructionRow[] {
-    try {
-      const itemRow = dataRows.find(
-        (row) => String(row[0] || '').trim() === itemName
-      );
-
-      if (!itemRow) {
-        excelLogger.warn('找不到對應的項目資料列', { itemName });
-        return [];
+      // 派工單號和品名是必要欄位
+      if (!workOrderNumber || !itemName) {
+        continue;
       }
 
-      return dateHeaders
-        .map((dateHeader) =>
-          this.createRowFromCell(itemName, itemRow, dateHeader, workOrderNumber)
-        )
-        .filter((row): row is RoadConstructionRow => row !== null);
-    } catch (error) {
-      excelLogger.error('建立項目資料行失敗', error, { itemName });
-      return [];
+      for (let key in row) {
+        const originalKey = key;
+        if (
+          !row.hasOwnProperty(originalKey) ||
+          ['派工單號', '廠商名稱', '品名', '單位', '單價'].includes(originalKey)
+        ) {
+          continue;
+        }
+
+        const value = row[originalKey];
+        const numericValue = this.parseNumericValue(value);
+
+        // 如果沒有數值，則跳過
+        if (numericValue === 0) {
+          continue;
+        }
+
+        // 移除 xlsx 自動添加的後綴，例如 '10/13/25_1' -> '10/13/25'
+        if (key.match(/_\d+$/)) {
+          key = key.substring(0, key.lastIndexOf('_'));
+        }
+
+        const date = this.parseDateString(key);
+        if (!date) {
+          excelLogger.warn('偵測到無效的日期欄位，已忽略', {
+            column: originalKey,
+            value,
+          });
+          continue;
+        }
+
+        const dateString = date.toISOString().split('T')[0];
+
+        // 處理重複日期欄位
+        let dateHeader = dateHeaderMap.get(dateString!);
+        if (!dateHeader) {
+          dateHeader = {
+            columnIndex: dateHeaders.length, // 虛擬索引
+            originalText: originalKey,
+            date,
+          };
+          dateHeaders.push(dateHeader);
+          dateHeaderMap.set(dateString!, dateHeader);
+        }
+
+        // 檢查是否存在相同鍵的記錄，如果存在則加總
+        const existingRow = normalizedRows.find(
+          (r) =>
+            r.派工單號 === workOrderNumber &&
+            r.廠商名稱 === vendorName &&
+            r.項目名稱 === itemName &&
+            r.日期 === dateString!
+        );
+
+        if (existingRow) {
+          existingRow.數量金額 += numericValue;
+        } else {
+          normalizedRows.push({
+            派工單號: workOrderNumber,
+            廠商名稱: vendorName,
+            項目名稱: itemName,
+            單位: unit,
+            單價: unitPrice,
+            日期: dateString!,
+            數量金額: numericValue,
+            備註: null,
+          });
+        }
+      }
     }
-  }
 
-  /**
-   * 從單一儲存格建立資料行
-   */
-  private static createRowFromCell(
-    itemName: string,
-    itemRow: any[],
-    dateHeader: DateHeader,
-    workOrderNumber: string
-  ): RoadConstructionRow | null {
-    try {
-      const value = itemRow[dateHeader.columnIndex];
-      const numericValue = this.parseNumericValue(value);
+    excelLogger.debug('資料正規化完成', {
+      totalRows: normalizedRows.length,
+      uniqueItems: new Set(normalizedRows.map((r) => r.項目名稱)).size,
+    });
 
-      const dateString = dateHeader.date.toISOString().split('T')[0];
-
-      return {
-        派工單號: workOrderNumber,
-        項目名稱: itemName,
-        日期: dateString || '',
-        數量金額: numericValue,
-        備註: null,
-      };
-    } catch (error) {
-      excelLogger.debug('建立資料行失敗', {
-        itemName,
-        date: dateHeader.originalText,
-        error: error instanceof Error ? error.message : '未知錯誤',
-      });
-      return null;
-    }
+    return { normalizedRows, dateHeaders };
   }
 
   /**
@@ -482,8 +449,8 @@ export class RoadConstructionExcelService {
       }
 
       return {
-        start: firstDate.toISOString().split('T')[0] || '',
-        end: lastDate.toISOString().split('T')[0] || '',
+        start: firstDate.toISOString().split('T')[0]!,
+        end: lastDate.toISOString().split('T')[0]!,
       };
     } catch (error) {
       excelLogger.warn('提取日期範圍失敗', {

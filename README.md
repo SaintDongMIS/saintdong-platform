@@ -43,6 +43,13 @@ DB_PORT=
 DB_USER=
 DB_PASSWORD=your_actual_password
 DB_DATABASE=
+
+# Email 通知設定（可選）
+SMTP_HOST=sg2.bim-group.com
+SMTP_PORT=25
+SMTP_USER=mailsystem
+SMTP_PASSWORD=A23265946
+EMAIL_TO=jimwuu01@gmail.com,jim51114@yahoo.com.tw
 ```
 
 ## 開發原則
