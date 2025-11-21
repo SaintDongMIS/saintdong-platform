@@ -89,7 +89,7 @@ export const FinanceDepartmentConfig: DepartmentConfig = {
 export const RoadConstructionDepartmentConfig: DepartmentConfig = {
   departmentName: '道路施工部門',
   tableName: 'RoadConstructionForm',
-  requiredFields: ['派工單號', '項目名稱', '日期', '數量金額'],
+  requiredFields: ['派工單號', '項目名稱', '日期', '數量'],
   tableSchema: roadConstructionTableSchema,
   primaryKeyField: 'RCid',
 

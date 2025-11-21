@@ -43,98 +43,32 @@ export class DatabaseService {
     tableName: string,
     formNumberField: string = '表單編號'
   ): Promise<DatabaseResult> {
-    const pool = await getConnectionPool();
-    const transaction = new sql.Transaction(pool);
-
-    const result: DatabaseResult = {
-      success: false,
-      insertedCount: 0,
-      skippedCount: 0,
-      errors: [],
-    };
-
-    try {
-      // 開始交易
-      await transaction.begin();
-
-      // 🔥 移除檔案內部重複檢查，允許檔案內相同資料
-      // 建立一個 Set 來追蹤此批次中已處理的複合鍵，以處理檔案內的重複
-      // const processedInThisBatch = new Set<string>(); // 移除這行
-
-      // 🔥 新增：批次檢查資料庫中已存在的資料（O(1) 查詢）
-      const existingData = await this.batchCheckExistingData(
-        transaction,
-        data,
-        tableName
-      );
-
-      for (const row of data) {
-        try {
-          const formNumber = row[formNumberField];
-
-          if (!formNumber) {
-            result.errors.push(`資料行缺少表單編號: ${JSON.stringify(row)}`);
-            continue;
-          }
-
-          const trimmedFormNumber = formNumber.toString().trim();
-
-          // 建立複合鍵來判斷重複
-          const expenseItem = row['費用項目'] || '';
-          const invoiceNumber = row['發票號碼'] || '';
-          const transactionDate = row['交易日期'] || '';
-          const itemAmount = parseFloat(row['項目原幣金額'] || '0').toFixed(2);
-
-          const compositeKey = `${trimmedFormNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
-
-          // 🔥 移除檔案內部重複檢查
-          // if (processedInThisBatch.has(compositeKey)) {
-          //   result.skippedCount++;
-          //   dbLogger.debug(`跳過檔案內重複的費用項目: ${compositeKey}`);
-          //   continue;
-          // }
-
-          // 🔥 只檢查資料庫中是否已存在（O(1) 查詢）
-          if (existingData.has(compositeKey)) {
-            result.skippedCount++;
-            dbLogger.debug(`跳過資料庫中已存在的費用項目: ${compositeKey}`);
-            continue;
-          }
-
-          // 插入新資料
-          await this.insertRowInTransaction(transaction, row, tableName);
-          result.insertedCount++;
-          // 🔥 移除這行
-          // processedInThisBatch.add(compositeKey);
-        } catch (rowError) {
-          const errorMsg = `插入資料行失敗: ${JSON.stringify(
-            row
-          )} - ${rowError}`;
-          result.errors.push(errorMsg);
-          dbLogger.error(errorMsg);
+    return this.executeBatchInsert(
+      data,
+      tableName,
+      (row) => {
+        const formNumber = row[formNumberField];
+        if (!formNumber) {
+          return null;
         }
-      }
 
-      // 提交交易
-      await transaction.commit();
-      result.success = true;
+        const trimmedFormNumber = formNumber.toString().trim();
+        const expenseItem = row['費用項目'] || '';
+        const invoiceNumber = row['發票號碼'] || '';
+        const transactionDate = row['交易日期'] || '';
+        const itemAmount = parseFloat(row['項目原幣金額'] || '0').toFixed(2);
 
-      dbLogger.info('批次插入完成', {
-        insertedCount: result.insertedCount,
-        skippedCount: result.skippedCount,
-        errorCount: result.errors.length,
-      });
-    } catch (error) {
-      // 回滾交易
-      await transaction.rollback();
-      result.success = false;
-      result.errors.push(
-        `交易失敗: ${error instanceof Error ? error.message : '未知錯誤'}`
-      );
-      dbLogger.error('資料庫交易失敗', error);
-    }
-
-    return result;
+        return `${trimmedFormNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
+      },
+      (row) => {
+        const formNumber = row[formNumberField];
+        if (!formNumber) {
+          return `資料行缺少表單編號: ${JSON.stringify(row)}`;
+        }
+        return null;
+      },
+      this.batchCheckExistingData.bind(this)
+    );
   }
 
   /**
@@ -185,11 +119,55 @@ export class DatabaseService {
   /**
    * 道路施工部批次插入資料
    *
-   * 使用派工單號 + 項目名稱 + 日期作為複合鍵檢查重複
+   * 使用派工單號 + 廠商名稱 + 項目名稱 + 日期作為複合鍵檢查重複
    */
   static async batchInsertRoadConstructionData(
     data: ExcelRow[],
     tableName: string = 'RoadConstructionForm'
+  ): Promise<DatabaseResult> {
+    return this.executeBatchInsert(
+      data,
+      tableName,
+      (row) => {
+        const workOrderNumber = row['派工單號']?.toString().trim() || '';
+        const vendorName = row['廠商名稱']?.toString().trim() || '';
+        const itemName = row['項目名稱']?.toString().trim() || '';
+        const date = row['日期']?.toString().trim() || '';
+
+        if (!workOrderNumber || !itemName || !date) {
+          return null;
+        }
+
+        return `${workOrderNumber}-${vendorName}-${itemName}-${date}`;
+      },
+      () => null, // 道路施工部不需要額外驗證
+      this.batchCheckExistingDataRoadConstruction.bind(this),
+      (error) => {
+        // 處理 UNIQUE CONSTRAINT 違反
+        return (
+          error instanceof Error &&
+          (error.message.includes('UNIQUE') ||
+            error.message.includes('違反唯一約束'))
+        );
+      }
+    );
+  }
+
+  /**
+   * 通用的批次插入執行邏輯
+   * 提取共同邏輯，減少重複代碼
+   */
+  private static async executeBatchInsert(
+    data: ExcelRow[],
+    tableName: string,
+    buildCompositeKey: (row: ExcelRow) => string | null,
+    validateRow: (row: ExcelRow) => string | null,
+    checkExistingData: (
+      transaction: any,
+      data: ExcelRow[],
+      tableName: string
+    ) => Promise<Set<string>>,
+    shouldSkipOnError?: (error: unknown) => boolean
   ): Promise<DatabaseResult> {
     const pool = await getConnectionPool();
     const transaction = new sql.Transaction(pool);
@@ -205,39 +183,40 @@ export class DatabaseService {
       await transaction.begin();
 
       // 批次檢查已存在的資料
-      const existingData = await this.batchCheckExistingDataRoadConstruction(
+      const existingData = await checkExistingData(
         transaction,
         data,
         tableName
       );
 
+      // 處理每一筆資料
       for (const row of data) {
         try {
-          // ✅ 簡化驗證：只檢查基本欄位存在，讓資料庫處理約束和驗證
-          const workOrderNumber = row['派工單號']?.toString().trim() || '';
-          const itemName = row['項目名稱']?.toString().trim() || '';
-          const date = row['日期']?.toString().trim() || '';
+          // 驗證資料行
+          const validationError = validateRow(row);
+          if (validationError) {
+            result.errors.push(validationError);
+            continue;
+          }
 
-          // 建立複合鍵用於檢查重複
-          const compositeKey = `${workOrderNumber}-${itemName}-${date}`;
+          // 建立複合鍵
+          const compositeKey = buildCompositeKey(row);
+          if (!compositeKey) {
+            continue;
+          }
 
-          // 檢查是否已存在（應用層重複檢查）
+          // 檢查是否已存在
           if (existingData.has(compositeKey)) {
             result.skippedCount++;
             continue;
           }
 
-          // 直接嘗試插入，讓資料庫處理驗證和約束
-          // 如果資料不完整，資料庫會報錯，我們在 catch 中處理
+          // 插入新資料
           await this.insertRowInTransaction(transaction, row, tableName);
           result.insertedCount++;
         } catch (rowError) {
-          // 處理 UNIQUE CONSTRAINT 違反
-          if (
-            rowError instanceof Error &&
-            (rowError.message.includes('UNIQUE') ||
-              rowError.message.includes('違反唯一約束'))
-          ) {
+          // 處理特定錯誤（如 UNIQUE CONSTRAINT 違反）
+          if (shouldSkipOnError && shouldSkipOnError(rowError)) {
             result.skippedCount++;
             continue;
           }
@@ -253,7 +232,8 @@ export class DatabaseService {
       await transaction.commit();
       result.success = true;
 
-      dbLogger.info('道路施工部批次插入完成', {
+      dbLogger.info('批次插入完成', {
+        tableName,
         insertedCount: result.insertedCount,
         skippedCount: result.skippedCount,
         errorCount: result.errors.length,
@@ -264,7 +244,7 @@ export class DatabaseService {
       result.errors.push(
         `交易失敗: ${error instanceof Error ? error.message : '未知錯誤'}`
       );
-      dbLogger.error('道路施工部資料庫交易失敗', error);
+      dbLogger.error('資料庫交易失敗', error);
     }
 
     return result;
@@ -378,78 +358,145 @@ export class DatabaseService {
     tableName: string
   ): Promise<void> {
     const request = new sql.Request(transaction);
-
-    // 動態建立 INSERT 語句，排除 EFid 主鍵欄位
     const columns = Object.keys(row);
     const values = Object.values(row);
 
-    // 用方括號包圍欄位名稱，避免 SQL 語法錯誤
+    // 建立 SQL 語句
     const columnNames = columns.map((col) => `[${col}]`).join(', ');
     const parameterNames = columns
-      .map((col, index) => `@param${index}`)
+      .map((_, index) => `@param${index}`)
       .join(', ');
 
-    // 設定參數，並根據欄位類型選擇適當的 SQL 類型
+    // 設定參數
     columns.forEach((col, index) => {
-      let value = values[index];
-
-      // 空字串轉換為 null
-      if (value === '') {
-        value = null;
-      }
-
-      // 根據欄位名稱判斷資料類型
-      const sqlType = this.getSqlTypeForColumn(col, value);
-
-      // ✅ 日期欄位特殊處理：確保日期字串正確轉換為 Date 物件
-      if (sqlType === sql.Date && typeof value === 'string' && value !== null) {
-        // 如果已經是 YYYY-MM-DD 格式的字串，轉換為 Date 物件
-        const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (dateMatch && dateMatch[1] && dateMatch[2] && dateMatch[3]) {
-          const year = parseInt(dateMatch[1]);
-          const month = parseInt(dateMatch[2]);
-          const day = parseInt(dateMatch[3]);
-          value = new Date(year, month - 1, day);
-        } else {
-          // 嘗試解析其他格式
-          const parsedDate = new Date(value);
-          if (!isNaN(parsedDate.getTime())) {
-            value = parsedDate;
-          }
-        }
-      }
-
-      request.input(`param${index}`, sqlType, value);
+      const { sqlType, convertedValue } = this.convertValueForInsert(
+        col,
+        values[index]
+      );
+      request.input(`param${index}`, sqlType, convertedValue);
     });
 
     const insertQuery = `INSERT INTO ${tableName} (${columnNames}) VALUES (${parameterNames})`;
-
     await request.query(insertQuery);
   }
 
   /**
+   * 轉換值為適合插入資料庫的格式
+   * @returns { sqlType, convertedValue }
+   */
+  private static convertValueForInsert(
+    columnName: string,
+    value: any
+  ): { sqlType: any; convertedValue: any } {
+    // 空字串轉換為 null
+    if (value === '') {
+      value = null;
+    }
+
+    const sqlType = this.getSqlTypeForColumn(columnName, value);
+
+    // Boolean 類型轉換
+    if (sqlType === sql.Bit) {
+      return {
+        sqlType,
+        convertedValue: this.convertBooleanValue(value),
+      };
+    }
+
+    // 日期類型轉換
+    if (sqlType === sql.Date) {
+      return {
+        sqlType,
+        convertedValue: this.convertDateValue(value),
+      };
+    }
+
+    return { sqlType, convertedValue: value };
+  }
+
+  /**
+   * 轉換 boolean 值為 BIT (0 或 1)
+   */
+  private static convertBooleanValue(value: any): number {
+    if (typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
+    if (value === null || value === undefined) {
+      return 0; // 預設為 false
+    }
+    return value ? 1 : 0;
+  }
+
+  /**
+   * 轉換日期字串為 Date 物件
+   */
+  private static convertDateValue(value: any): Date | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    // 已經是 Date 物件
+    if (value instanceof Date) {
+      return isNaN(value.getTime()) ? null : value;
+    }
+
+    // 字串格式處理
+    if (typeof value === 'string') {
+      // YYYY-MM-DD 格式
+      const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (dateMatch && dateMatch[1] && dateMatch[2] && dateMatch[3]) {
+        const year = parseInt(dateMatch[1], 10);
+        const month = parseInt(dateMatch[2], 10);
+        const day = parseInt(dateMatch[3], 10);
+        const date = new Date(year, month - 1, day);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+
+      // 嘗試解析其他格式
+      const parsedDate = new Date(value);
+      if (!isNaN(parsedDate.getTime())) {
+        return parsedDate;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * 根據欄位名稱判斷 SQL 資料類型
+   * 使用映射表優化性能，減少條件判斷
    */
   private static getSqlTypeForColumn(columnName: string, value: any): any {
-    // 日期欄位
-    if (columnName.includes('日期') || columnName.includes('時間')) {
-      return sql.Date;
+    // Boolean 類型檢查（優先）
+    if (columnName === '已更新' || typeof value === 'boolean') {
+      return sql.Bit;
     }
 
-    // 金額欄位
-    if (
-      columnName.includes('金額') ||
-      columnName.includes('總計') ||
-      columnName.includes('稅額') ||
-      columnName.includes('匯率') ||
-      columnName.includes('單價')
-    ) {
-      return sql.Decimal(18, 2);
+    // 精確匹配的欄位名稱（使用 Map 查找，O(1)）
+    const exactMatchTypes: Record<string, any> = {
+      匯率: sql.Decimal(18, 6),
+      數量: typeof value === 'number' ? sql.Decimal(18, 2) : sql.NVarChar,
+    };
+
+    if (exactMatchTypes[columnName]) {
+      return exactMatchTypes[columnName];
     }
 
-    // 匯率欄位 (特殊處理)
-    if (columnName === '匯率') {
-      return sql.Decimal(18, 6);
+    // 關鍵字匹配（使用陣列，順序重要）
+    const keywordPatterns = [
+      { keywords: ['日期', '時間'], type: sql.Date },
+      {
+        keywords: ['金額', '總計', '稅額', '單價'],
+        type: sql.Decimal(18, 2),
+      },
+    ];
+
+    for (const pattern of keywordPatterns) {
+      if (pattern.keywords.some((keyword) => columnName.includes(keyword))) {
+        return pattern.type;
+      }
     }
 
     // 預設為字串

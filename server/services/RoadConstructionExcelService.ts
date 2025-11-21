@@ -20,8 +20,9 @@ export interface RoadConstructionRow {
   單位: string;
   單價: number;
   日期: string; // YYYY-MM-DD
-  數量金額: number;
+  數量: number;
   備註: string | null;
+  已更新: boolean;
 }
 
 /**
@@ -376,7 +377,7 @@ export class RoadConstructionExcelService {
         );
 
         if (existingRow) {
-          existingRow.數量金額 += numericValue;
+          existingRow.數量 += numericValue;
         } else {
           normalizedRows.push({
             派工單號: workOrderNumber,
@@ -385,8 +386,9 @@ export class RoadConstructionExcelService {
             單位: unit,
             單價: unitPrice,
             日期: dateString!,
-            數量金額: numericValue,
+            數量: numericValue,
             備註: null,
+            已更新: false,
           });
         }
       }

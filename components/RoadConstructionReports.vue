@@ -53,7 +53,7 @@
               <th class="th-cell">派工單號</th>
               <th class="th-cell">項目名稱</th>
               <th class="th-cell">日期</th>
-              <th class="th-cell text-right">數量金額</th>
+              <th class="th-cell text-right">數量</th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
@@ -62,7 +62,7 @@
               <td class="td-cell">{{ report.項目名稱 }}</td>
               <td class="td-cell">{{ formatDate(report.日期) }}</td>
               <td class="td-cell text-right">
-                {{ formatNumber(report.數量金額) }}
+                {{ formatNumber(report.數量) }}
               </td>
             </tr>
           </tbody>
@@ -79,7 +79,7 @@
             共 {{ totalItems }} 筆資料
           </span>
           <span class="text-sm text-gray-800 font-medium">
-            總金額：{{ formatNumber(totalAmount) }}
+            總數量：{{ formatNumber(totalAmount) }}
           </span>
         </div>
         <div class="flex items-center space-x-2">

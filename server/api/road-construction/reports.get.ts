@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
     const summaryQuery = `
       SELECT 
         COUNT(*) as total,
-        SUM([數量金額]) as totalAmount
+        SUM([數量]) as totalAmount
       FROM RoadConstructionForm
       ${whereCondition};
     `;
