@@ -124,9 +124,11 @@ export class EmailService {
       }
 
       // 發送郵件（加上超時保護）
-      uploadLogger.info('📧 EMAIL 發送：正在發送郵件...');
+      uploadLogger.info('📧 EMAIL 發送：正在發送郵件...', {
+        from: process.env.SMTP_FROM || 'saintdong_platform@bim-group.com',
+      });
       const sendPromise = transporter.sendMail({
-        from: 'saintdong_platform@bim-group.com',
+        from: process.env.SMTP_FROM || 'saintdong_platform@bim-group.com',
         to: recipients, // nodemailer 支援陣列
         subject: `[${department}] Excel 檔案上傳完成通知`,
         html: this.buildEmailContent(uploadResult),
