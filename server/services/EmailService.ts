@@ -20,15 +20,11 @@ export class EmailService {
     const isSecurePort = smtpPort === 465; // 465 使用 SSL
     const useTLS = smtpPort === 587; // 587 使用 STARTTLS
 
-    const smtpConfig = {
+    const smtpConfig: any = {
       host: process.env.SMTP_HOST || 'sg2.bim-group.com',
       port: smtpPort,
       secure: isSecurePort, // 465 使用 SSL，其他不使用
       requireTLS: useTLS, // 587 使用 STARTTLS
-      auth: {
-        user: process.env.SMTP_USER || 'mailsystem',
-        pass: process.env.SMTP_PASSWORD || '',
-      },
       tls: {
         rejectUnauthorized: false, // 不驗證憑證（開發環境）
       },
@@ -38,11 +34,20 @@ export class EmailService {
       socketTimeout: 10000, // 10 秒 socket 超時
     };
 
+    // 只有在設定了 SMTP_USER 時才加入認證資訊
+    // 這允許使用無需認證的內部 SMTP Server (如 NAS 環境)
+    if (process.env.SMTP_USER) {
+      smtpConfig.auth = {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD || '',
+      };
+    }
+
     uploadLogger.info('📧 EMAIL 設定：建立 SMTP transporter', {
       host: smtpConfig.host,
       port: smtpConfig.port,
-      user: smtpConfig.auth.user,
-      hasPassword: !!smtpConfig.auth.pass,
+      authEnabled: !!smtpConfig.auth,
+      user: smtpConfig.auth?.user,
     });
 
     // nodemailer 使用 'host' 作為配置參數名稱
