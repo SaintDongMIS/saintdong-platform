@@ -20,7 +20,7 @@ export const reimbursementTableSchema = `
   [表單本幣總計] DECIMAL(18,2),
   [代墊本幣總計] DECIMAL(18,2),
   [卡片交易本幣總計] DECIMAL(18,2),
-  [請款原因-表單下方選項] NVARCHAR(50),
+  [請款原因-表單下方選項] NVARCHAR(500),
   [付款期限] DATE,
   [付款狀態] NVARCHAR(50),
   [實際付款日期] DATE,
