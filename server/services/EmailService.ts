@@ -124,14 +124,24 @@ export class EmailService {
       }
 
       // 發送郵件（加上超時保護）
+      const smtpFrom = process.env.SMTP_FROM || 'mailsystem@mail.bim-group.com';
+      const emailSubject = `[${department}] Excel 檔案上傳完成通知`;
+      const emailHtml = this.buildEmailContent(uploadResult);
+
       uploadLogger.info('📧 EMAIL 發送：正在發送郵件...', {
-        from: process.env.SMTP_FROM || 'saintdong_platform@bim-group.com',
+        from: smtpFrom,
+        to: recipients,
+        subject: emailSubject,
+        recipientsCount: recipients.length,
+        smtpFromEnv: process.env.SMTP_FROM || 'mailsystem@mail.bim-group.com',
+        htmlContentLength: emailHtml.length,
       });
+
       const sendPromise = transporter.sendMail({
-        from: process.env.SMTP_FROM || 'saintdong_platform@bim-group.com',
+        from: smtpFrom,
         to: recipients, // nodemailer 支援陣列
-        subject: `[${department}] Excel 檔案上傳完成通知`,
-        html: this.buildEmailContent(uploadResult),
+        subject: emailSubject,
+        html: emailHtml,
         encoding: 'utf-8',
       });
 
@@ -145,13 +155,21 @@ export class EmailService {
         timeoutPromise,
       ])) as any;
 
-      // ✅ 成功時用醒目的訊息
+      // ✅ 成功時用醒目的訊息，記錄完整資訊
       uploadLogger.info('✅ EMAIL 通知：郵件發送成功！', {
         messageId: mailResult.messageId,
         response: mailResult.response,
+        accepted: mailResult.accepted || [],
+        rejected: mailResult.rejected || [],
+        pending: mailResult.pending || [],
+        from: smtpFrom,
+        to: recipients,
+        subject: emailSubject,
         recipients: recipients.join(', '),
         department,
         fileName,
+        // 記錄 SMTP 伺服器的完整回應
+        envelope: mailResult.envelope,
       });
     } catch (error) {
       // ❌ 失敗時用醒目的錯誤訊息，並顯示詳細錯誤
