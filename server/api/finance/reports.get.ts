@@ -1,6 +1,12 @@
 import { getConnectionPool } from '../../config/database';
 import sql from 'mssql';
 
+// 簡單的輸入過濾：只保留中文、英文、數字和空白
+const sanitizeInput = (input: any) => {
+  if (!input || typeof input !== 'string') return '';
+  return input.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\s]/g, '');
+};
+
 export default defineEventHandler(async (event) => {
   try {
     const query = getQuery(event);
@@ -33,6 +39,22 @@ export default defineEventHandler(async (event) => {
     if (filters.申請日期) {
       whereConditions.push('[申請日期] = @申請日期');
       request.input('申請日期', sql.Date, filters.申請日期);
+    }
+
+    if (filters.請款原因) {
+      const sanitizedReason = sanitizeInput(filters.請款原因);
+      if (sanitizedReason) {
+        whereConditions.push('[請款原因-表單下方選項] LIKE @請款原因');
+        request.input('請款原因', sql.NVarChar, `%${sanitizedReason}%`);
+      }
+    }
+
+    if (filters.事由) {
+      const sanitizedDescription = sanitizeInput(filters.事由);
+      if (sanitizedDescription) {
+        whereConditions.push('[事由] LIKE @事由');
+        request.input('事由', sql.NVarChar, `%${sanitizedDescription}%`);
+      }
     }
 
     const whereClause =

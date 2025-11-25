@@ -52,6 +52,30 @@
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1"
+            >請款原因</label
+          >
+          <input
+            v-model="filters.請款原因"
+            type="text"
+            placeholder="輸入請款原因"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1"
+            >事由</label
+          >
+          <input
+            v-model="filters.事由"
+            type="text"
+            placeholder="輸入事由"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
       </div>
 
       <div class="flex justify-between items-center">
@@ -326,6 +350,8 @@ const filters = ref({
   表單狀態: '',
   申請人: '',
   申請日期: '',
+  請款原因: '',
+  事由: '',
 });
 
 // 計算屬性
@@ -377,6 +403,8 @@ const clearFilters = () => {
     表單狀態: '',
     申請人: '',
     申請日期: '',
+    請款原因: '',
+    事由: '',
   };
   searchReports();
 };
