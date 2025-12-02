@@ -57,6 +57,14 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    if (filters.入帳對象) {
+      const sanitizedPayee = sanitizeInput(filters.入帳對象);
+      if (sanitizedPayee) {
+        whereConditions.push('[入帳對象] LIKE @入帳對象');
+        request.input('入帳對象', sql.NVarChar, `%${sanitizedPayee}%`);
+      }
+    }
+
     const whereClause =
       whereConditions.length > 0
         ? `WHERE ${whereConditions.join(' AND ')}`
