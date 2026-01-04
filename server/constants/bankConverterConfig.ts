@@ -34,4 +34,3 @@ export const BankConverterConfig = {
   // 每行總長度（bytes）
   LINE_LENGTH: 361,
 } as const;
-

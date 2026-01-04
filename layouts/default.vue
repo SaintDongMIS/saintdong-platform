@@ -67,6 +67,9 @@
     <main>
       <slot />
     </main>
+
+    <!-- Toast 通知 -->
+    <Toast />
   </div>
 </template>
 

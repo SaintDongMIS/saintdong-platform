@@ -244,6 +244,9 @@ import { ref } from 'vue';
 import RoadConstructionReports from '~/components/RoadConstructionReports.vue';
 import { useExcelValidator } from '~/composables/useExcelValidator';
 import { roadConstructionValidationConfig } from '~/utils/departmentConfig';
+import { useToast } from '~/composables/useToast';
+
+const { success, error, warning, info } = useToast();
 
 const activeTab = ref('reports');
 const selectedFile = ref(null);
@@ -276,7 +279,7 @@ const validateAndSetFile = async (file) => {
     .substring(file.name.lastIndexOf('.'));
 
   if (!allowedExtensions.includes(fileExtension)) {
-    alert('請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)');
+    warning('請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)');
     return;
   }
 
@@ -289,7 +292,7 @@ const validateAndSetFile = async (file) => {
     );
 
     if (!validationResult.isValid) {
-      alert(validationResult.message);
+      error(validationResult.message);
       clearFile(); // 清除無效檔案
       return;
     }
@@ -298,7 +301,7 @@ const validateAndSetFile = async (file) => {
     selectedFile.value = file;
   } catch (error) {
     console.error('檔案驗證時發生錯誤:', error);
-    alert('檔案驗證失敗，請稍後再試。');
+    error('檔案驗證失敗，請稍後再試。');
   } finally {
     isUploading.value = false;
   }
@@ -334,13 +337,13 @@ const uploadFile = async () => {
     });
 
     if (response.success) {
-      alert('檔案上傳成功！');
+      success('檔案上傳成功！');
       console.log('上傳結果:', response.data);
       clearFile();
     }
   } catch (error) {
     console.error('上傳失敗:', error);
-    alert('上傳失敗，請稍後再試');
+    error('上傳失敗，請稍後再試');
   } finally {
     isUploading.value = false;
   }

@@ -583,6 +583,9 @@
 import { ref } from 'vue';
 import { useExcelValidator } from '~/composables/useExcelValidator';
 import { financeValidationConfig } from '~/utils/departmentConfig';
+import { useToast } from '~/composables/useToast';
+
+const { success, error, warning, info } = useToast();
 
 const activeTab = ref('reports');
 const selectedFile = ref(null);
@@ -626,7 +629,7 @@ const validateAndSetFile = async (file) => {
     .substring(file.name.lastIndexOf('.'));
 
   if (!allowedExtensions.includes(fileExtension)) {
-    alert('請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)');
+    warning('請選擇 Excel 檔案 (.xlsx, .xls) 或 CSV 檔案 (.csv)');
     return;
   }
 
@@ -639,7 +642,7 @@ const validateAndSetFile = async (file) => {
     );
 
     if (!validationResult.isValid) {
-      alert(validationResult.message);
+      error(validationResult.message);
       clearFile(); // 清除無效檔案
       return;
     }
@@ -648,7 +651,7 @@ const validateAndSetFile = async (file) => {
     selectedFile.value = file;
   } catch (error) {
     console.error('檔案驗證時發生錯誤:', error);
-    alert('檔案驗證失敗，請稍後再試。');
+    error('檔案驗證失敗，請稍後再試。');
   } finally {
     isUploading.value = false;
   }
@@ -684,11 +687,11 @@ const uploadFile = async () => {
       body: formData,
     });
 
-    alert('檔案上傳成功！');
+    success('檔案上傳成功！');
     clearFile();
   } catch (error) {
     console.error('上傳失敗:', error);
-    alert('上傳失敗，請稍後再試');
+    error('上傳失敗，請稍後再試');
   } finally {
     isUploading.value = false;
   }
@@ -748,7 +751,7 @@ const handleBankConvertFileSelect = (event) => {
   const file = event.target.files[0];
   if (file) {
     if (!file.name.toLowerCase().endsWith('.txt')) {
-      alert('請選擇 .txt 檔案');
+      warning('請選擇 .txt 檔案');
       return;
     }
     bankConvertSelectedFile.value = file;
@@ -762,7 +765,7 @@ const handleBankConvertFileDrop = (event) => {
   if (files.length > 0) {
     const file = files[0];
     if (!file.name.toLowerCase().endsWith('.txt')) {
-      alert('請選擇 .txt 檔案');
+      warning('請選擇 .txt 檔案');
       return;
     }
     bankConvertSelectedFile.value = file;
@@ -823,11 +826,11 @@ const convertBankFile = async () => {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
 
-    alert('轉換完成！檔案已下載');
+    success('轉換完成！檔案已下載');
     clearBankConvertFile();
   } catch (error) {
     console.error('轉換失敗:', error);
-    alert('轉換失敗，請稍後再試');
+    error('轉換失敗，請稍後再試');
   } finally {
     isBankConvertProcessing.value = false;
   }
@@ -875,12 +878,12 @@ const processJimFile = async () => {
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
 
-    alert('檔案處理完成並已下載！');
+    success('檔案處理完成並已下載！');
     clearJimFile();
     showJimTest.value = false;
   } catch (error) {
     console.error('處理失敗:', error);
-    alert('處理失敗，請稍後再試');
+    error('處理失敗，請稍後再試');
   } finally {
     isJimProcessing.value = false;
   }
