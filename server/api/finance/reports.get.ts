@@ -65,6 +65,19 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    if (filters.金額 && filters.金額 !== '') {
+      const amount = parseFloat(filters.金額 as string);
+      if (!isNaN(amount) && amount >= 0) {
+        whereConditions.push('[表單本幣總計] = @金額');
+        request.input('金額', sql.Decimal(18, 2), amount);
+      }
+    }
+
+    if (filters.付款狀態) {
+      whereConditions.push('[付款狀態] = @付款狀態');
+      request.input('付款狀態', sql.NVarChar, filters.付款狀態);
+    }
+
     const whereClause =
       whereConditions.length > 0
         ? `WHERE ${whereConditions.join(' AND ')}`

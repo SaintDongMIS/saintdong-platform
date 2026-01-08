@@ -88,6 +88,35 @@
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1"
+            >金額</label
+          >
+          <input
+            v-model="filters.金額"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="輸入金額"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1"
+            >付款狀態</label
+          >
+          <select
+            v-model="filters.付款狀態"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">全部</option>
+            <option value="未付款">未付款</option>
+            <option value="已付款">已付款</option>
+            <option value="付款中">付款中</option>
+          </select>
+        </div>
       </div>
 
       <div class="flex justify-between items-center">
@@ -365,6 +394,8 @@ const filters = ref({
   請款原因: '',
   事由: '',
   入帳對象: '',
+  金額: '',
+  付款狀態: '',
 });
 
 // 計算屬性
@@ -419,6 +450,8 @@ const clearFilters = () => {
     請款原因: '',
     事由: '',
     入帳對象: '',
+    金額: '',
+    付款狀態: '',
   };
   searchReports();
 };
