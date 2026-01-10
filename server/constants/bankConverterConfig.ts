@@ -28,6 +28,8 @@ export const BankConverterConfig = {
     PAYEE_BANK_CODE: { start: 151, length: 7 }, // 收款行代碼
     PAYEE_ACCOUNT: { start: 158, length: 16 }, // 收款人帳號
     PAYEE_NAME: { start: 184, length: 70 }, // 收款人戶名
+    ELECTRONIC_NOTIFY: { start: 254, length: 1 }, // 收款人是否電告
+    HANDLING_FEE_ALLOCATION: { start: 255, length: 2 }, // 手續費分攤方式 (15=外加, 13=內扣)
     FINAL_AMOUNT: { start: 305, length: 6 }, // 最終金額（6位）
   },
 

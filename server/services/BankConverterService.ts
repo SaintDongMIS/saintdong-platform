@@ -1,4 +1,5 @@
 import { BankConverterConfig } from '../constants/bankConverterConfig';
+import { isSpecialCompany } from './HandlingFeeService';
 
 interface ParsedBankLine {
   date: string;
@@ -9,7 +10,8 @@ interface ParsedBankLine {
   amount17: string;
   payeeAccountDigits: string;
   receiveNameBytes: Buffer;
-  finalAmount: string;
+  receiveNameText: string; // 新增：收款人戶名文字（用於手續費計算）
+  originalHandlingFeeAllocation: string; // 原始檔案中的手續費分攤方式（6位數，如130000、150000）
 }
 
 /**
@@ -27,22 +29,22 @@ export class BankConverterService {
 
     // 例：0        20260115SPU          013    265030001102    23265946 .... TWD+00000016200000050    16008050043               國立宜蘭大學４０２專戶 .... 0 .... 130000
     const head = lineLatin1.match(/^0\s+(\d{8})(SPU|TRN)\s+/);
-    if (!head) return null;
+    if (!head || !head[1] || !head[2]) return null;
     const date = head[1];
     const transType = head[2];
 
     const afterHead = lineLatin1.slice(head[0].length);
     const bankCodeMatch = afterHead.match(/^(\d{3})\s+/);
-    if (!bankCodeMatch) return null;
+    if (!bankCodeMatch || !bankCodeMatch[1]) return null;
     const bankCode = bankCodeMatch[1];
 
     const afterBankCode = afterHead.slice(bankCodeMatch[0].length);
     const accountMatch = afterBankCode.match(/^(\d{1,16})/);
-    if (!accountMatch) return null;
+    if (!accountMatch || !accountMatch[1]) return null;
     const account = accountMatch[1];
 
     const serialMatch = lineLatin1.match(/(\d{8})\s+TWD\+/);
-    if (!serialMatch) return null;
+    if (!serialMatch || !serialMatch[1]) return null;
     const serial = serialMatch[1];
 
     const twdIdx = lineLatin1.indexOf('TWD+');
@@ -50,22 +52,21 @@ export class BankConverterService {
 
     const afterTwd = lineLatin1.slice(twdIdx + 4);
     const amountMatch = afterTwd.match(/^(\d{17})/);
-    if (!amountMatch) return null;
+    if (!amountMatch || !amountMatch[1]) return null;
     const amount17 = amountMatch[1];
 
     // 收款帳號（amount17 後的下一段數字）
     const afterAmountAbs = twdIdx + 4 + amount17.length;
     const tailAfterAmount = lineLatin1.slice(afterAmountAbs);
     const receiveAccMatch = tailAfterAmount.match(/^\s*(\d{1,16})/);
-    if (!receiveAccMatch) return null;
+    if (!receiveAccMatch || !receiveAccMatch[1]) return null;
     const receiveAccountRaw = receiveAccMatch[1];
-    const receiveAccEndAbs =
-      afterAmountAbs + receiveAccMatch[0].length; // 含前導空白 + 數字
+    const receiveAccEndAbs = afterAmountAbs + receiveAccMatch[0].length; // 含前導空白 + 數字
 
-    // 最後 6 位金額
-    const finalAmountMatch = lineLatin1.match(/(\d{6})\s*$/);
-    if (!finalAmountMatch) return null;
-    const finalAmount = finalAmountMatch[1];
+    // 最後 6 位數：手續費分攤方式（前2位是13或15，後面補0，如130000、150000）
+    const handlingFeeMatch = lineLatin1.match(/(\d{6})\s*$/);
+    if (!handlingFeeMatch || !handlingFeeMatch[1]) return null;
+    const originalHandlingFeeAllocation = handlingFeeMatch[1];
 
     // 找最後那個「單獨的 0 欄位」（收款人是否電告），以它作為收款戶名結束點
     let zeroPos = -1;
@@ -89,6 +90,17 @@ export class BankConverterService {
     // 收款帳號：最多 16 位
     const payeeAccountDigits = receiveAccountRaw.replace(/\D/g, '');
 
+    // 將收款戶名從 latin1 轉換為文字（用於手續費計算）
+    // 嘗試解碼為 Big5，如果失敗則使用原始字串
+    let receiveNameText = '';
+    try {
+      const nameBuffer = Buffer.from(receiveNameRaw, 'latin1');
+      // 使用類型斷言來處理 Big5 編碼
+      receiveNameText = nameBuffer.toString('big5' as BufferEncoding).trim();
+    } catch {
+      receiveNameText = receiveNameRaw.trim();
+    }
+
     return {
       date,
       transType,
@@ -99,7 +111,8 @@ export class BankConverterService {
       payeeAccountDigits,
       // 收款戶名 bytes（Big5），保持原樣：latin1 轉回 bytes 不會變亂碼
       receiveNameBytes: Buffer.from(receiveNameRaw.trim(), 'latin1'),
-      finalAmount,
+      receiveNameText, // 新增：收款人戶名文字
+      originalHandlingFeeAllocation, // 原始手續費分攤方式（6位數格式）
     };
   }
 
@@ -162,16 +175,16 @@ export class BankConverterService {
     // 3) 付款人戶名 [63..132] (70 bytes)：從 constants 讀取（已是 Big5 bytes）
     BankConverterConfig.PAYER_NAME_BYTES.copy(out, pos.PAYER_NAME.start);
 
-    // 2) 金額欄位合併：
+    // 2) 金額欄位合併（保持原始金額不變）：
     // currency [133..135] = TWD
     out.write('TWD', pos.CURRENCY.start, pos.CURRENCY.length, 'ascii');
 
     // sign [136] = +
     out.write('+', pos.AMOUNT_SIGN.start, pos.AMOUNT_SIGN.length, 'ascii');
 
-    // amount [137..150] = 14 digits（amount17 前14）
-    const amount14 = parsed.amount17.slice(0, 14).padStart(14, '0');
-    out.write(amount14, pos.AMOUNT.start, pos.AMOUNT.length, 'ascii');
+    // amount [137..150] = 14 digits（使用原始金額，從 amount17 前14位提取）
+    const originalAmount14 = parsed.amount17.slice(0, 14).padStart(14, '0');
+    out.write(originalAmount14, pos.AMOUNT.start, pos.AMOUNT.length, 'ascii');
 
     // 收款行代碼 [151..157]：amount17 後3位 + 0000（例：0130000）
     const payeeBank3 = parsed.amount17.slice(14, 17);
@@ -199,11 +212,34 @@ export class BankConverterService {
         : parsed.receiveNameBytes;
     nameBytes.copy(out, pos.PAYEE_NAME.start);
 
-    // 固定 0 欄位（收款人是否電告）[254]：維持空白（已經是 0x20）
-
-    // 最終金額 [305..310] (6位)
+    // 收款人是否電告 [254]：固定為 0
     out.write(
-      parsed.finalAmount.padStart(6, '0').slice(0, 6),
+      '0',
+      pos.ELECTRONIC_NOTIFY.start,
+      pos.ELECTRONIC_NOTIFY.length,
+      'ascii'
+    );
+
+    // 判斷是否為特例公司，決定手續費分攤方式
+    // 特例公司：台灣中油、雲一 → 手續費30元外加 → 強制使用15（外加）
+    // 一般情況：一律使用13（內扣）
+    const isSpecial = isSpecialCompany(parsed.receiveNameText);
+
+    // 如果是特例公司，強制使用15（外加）；否則一律使用13（內扣）
+    const handlingFeeAllocation: string = isSpecial ? '15' : '13';
+
+    // 手續費分攤方式 [255..256] (2位)：15=外加, 13=內扣
+    out.write(
+      handlingFeeAllocation,
+      pos.HANDLING_FEE_ALLOCATION.start,
+      pos.HANDLING_FEE_ALLOCATION.length,
+      'ascii'
+    );
+
+    // 最終金額 [305..310] (6位)：手續費分攤方式（前2位是13或15，後面補0到6位）
+    const finalAllocation6 = handlingFeeAllocation.padEnd(6, '0');
+    out.write(
+      finalAllocation6,
       pos.FINAL_AMOUNT.start,
       pos.FINAL_AMOUNT.length,
       'ascii'
@@ -222,7 +258,9 @@ export class BankConverterService {
     const outLines: Buffer[] = [];
 
     for (let i = 0; i < rawLines.length; i++) {
-      const raw = rawLines[i].replace(/\r$/, '');
+      const line = rawLines[i];
+      if (!line) continue;
+      const raw = line.replace(/\r$/, '');
       if (!raw) continue;
 
       const parsed = this.parseBankLineBytes(raw);
