@@ -101,33 +101,73 @@ async function migrateTableStructure(pool: any) {
 
 /**
  * 解析 schema 字串，提取欄位定義
+ * 使用智能分割，正確處理括號內的逗號（如 DECIMAL(18,2)）
  */
 function parseSchemaColumns(
   schema: string
 ): Array<{ name: string; definition: string }> {
-  // 移除換行和額外空格，分割成行
-  const lines = schema
-    .replace(/\n/g, ' ')
-    .split(',')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+  // 移除換行，轉換為單行字串
+  const normalizedSchema = schema.replace(/\n/g, ' ').trim();
 
-  return lines
-    .map((line) => {
+  const columns: string[] = [];
+  let currentColumn = '';
+  let depth = 0; // 追蹤括號深度
+  let inBrackets = false; // 追蹤是否在方括號內（欄位名稱）
+
+  for (let i = 0; i < normalizedSchema.length; i++) {
+    const char = normalizedSchema[i];
+
+    if (char === '[') {
+      inBrackets = true;
+      currentColumn += char;
+    } else if (char === ']') {
+      inBrackets = false;
+      currentColumn += char;
+    } else if (char === '(') {
+      depth++;
+      currentColumn += char;
+    } else if (char === ')') {
+      depth--;
+      currentColumn += char;
+    } else if (char === ',' && depth === 0 && !inBrackets) {
+      // 只有在括號深度為 0 且不在方括號內時，才視為欄位分隔符
+      const trimmed = currentColumn.trim();
+      if (trimmed.length > 0) {
+        columns.push(trimmed);
+      }
+      currentColumn = '';
+    } else {
+      currentColumn += char;
+    }
+  }
+
+  // 處理最後一個欄位
+  const trimmed = currentColumn.trim();
+  if (trimmed.length > 0) {
+    columns.push(trimmed);
+  }
+
+  return columns
+    .map((definition) => {
       // 提取欄位名稱 (方括號內的部分)
-      const nameMatch = line.match(/\[([^\]]+)\]/);
+      const nameMatch = definition.match(/\[([^\]]+)\]/);
       const name = nameMatch ? nameMatch[1] : '';
 
       return {
         name,
-        definition: line.trim(),
+        definition: definition.trim(),
       };
     })
-    .filter((col) => {
-      // 過濾掉主鍵欄位，因為主鍵不能透過 ALTER TABLE ADD 新增
+    .filter((col): col is { name: string; definition: string } => {
+      // 過濾掉主鍵欄位和約束，因為這些不能透過 ALTER TABLE ADD 新增
+      // 同時確保 name 不為空
       return (
+        !!col.name &&
+        col.name.length > 0 &&
         !col.definition.includes('PRIMARY KEY') &&
-        !col.definition.includes('IDENTITY')
+        !col.definition.includes('IDENTITY') &&
+        !col.definition.includes('CONSTRAINT') &&
+        !col.definition.includes('UNIQUE')
       );
     });
 }

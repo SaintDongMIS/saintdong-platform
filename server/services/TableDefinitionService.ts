@@ -74,6 +74,7 @@ export const reimbursementTableSchema = `
   [會計科目代號] NVARCHAR(50),
   [會計科目] NVARCHAR(50),
   [會計科目原幣金額] DECIMAL(18,2),
+  [已更新] BIT DEFAULT 0,
   [建立時間] DATETIME DEFAULT GETDATE(),
   [更新時間] DATETIME DEFAULT GETDATE()
 `;
