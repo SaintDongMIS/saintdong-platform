@@ -803,6 +803,11 @@ const convertBankFile = async () => {
     // 取得檔案 blob
     const blob = await response.blob();
 
+    // 檢查 blob 是否為空
+    if (blob.size === 0) {
+      throw new Error('轉換後的檔案為空，請檢查輸入檔案格式是否正確');
+    }
+
     // 建立下載連結
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -1,5 +1,6 @@
 import { BankConverterConfig } from '../constants/bankConverterConfig';
 import { isSpecialCompany } from './HandlingFeeService';
+import { logger } from './LoggerService';
 
 interface ParsedBankLine {
   date: string;
@@ -28,27 +29,100 @@ export class BankConverterService {
     if (!lineLatin1) return null;
 
     // 例：0        20260115SPU          013    265030001102    23265946 .... TWD+00000016200000050    16008050043               國立宜蘭大學４０２專戶 .... 0 .... 130000
+    // 或：0        20260131SPU          0130000265030001102    23265946 .... TWD+...
     const head = lineLatin1.match(/^0\s+(\d{8})(SPU|TRN)\s+/);
-    if (!head || !head[1] || !head[2]) return null;
+    if (!head || !head[1] || !head[2]) {
+      logger.debug('解析失敗：行首格式不符', {
+        lineStart: lineLatin1.substring(0, 30),
+      });
+      return null;
+    }
     const date = head[1];
     const transType = head[2];
 
     const afterHead = lineLatin1.slice(head[0].length);
-    const bankCodeMatch = afterHead.match(/^(\d{3})\s+/);
-    if (!bankCodeMatch || !bankCodeMatch[1]) return null;
-    const bankCode = bankCodeMatch[1];
 
-    const afterBankCode = afterHead.slice(bankCodeMatch[0].length);
-    const accountMatch = afterBankCode.match(/^(\d{1,16})/);
-    if (!accountMatch || !accountMatch[1]) return null;
-    const account = accountMatch[1];
+    // 嘗試匹配 3 位銀行代碼（後接空格），或 7 位銀行代碼（後接帳號）
+    let bankCodeMatch = afterHead.match(/^(\d{3})\s+/);
+    let bankCode: string;
+    let bankCodeLength: number; // 用於記錄匹配的長度
+
+    if (bankCodeMatch && bankCodeMatch[1]) {
+      // 格式：013     (3位銀行代碼 + 空格)
+      bankCode = bankCodeMatch[1];
+      bankCodeLength = bankCodeMatch[0].length;
+    } else {
+      // 格式：0130000265030001102 (可能是 7位銀行代碼 + 帳號，無空格分隔)
+      // 嘗試匹配 7 位銀行代碼（0130000）或 3 位銀行代碼（013）
+      const bankCode7Match = afterHead.match(/^(\d{7})/);
+      if (bankCode7Match && bankCode7Match[1]) {
+        // 取前3位作為銀行代碼
+        bankCode = bankCode7Match[1].substring(0, 3);
+        bankCodeLength = bankCode7Match[0].length;
+      } else {
+        logger.debug('解析失敗：無法識別銀行代碼', {
+          afterHead: afterHead.substring(0, 20),
+        });
+        return null;
+      }
+    }
+
+    const afterBankCode = afterHead.slice(bankCodeLength);
+
+    // 解析付款人帳號
+    // 格式可能是：
+    // 1. 013    265030001102（3位銀行代碼 + 空格 + 帳號）
+    // 2. 0130000265030001102（7位銀行代碼直接接帳號，無空格）
+    let accountMatch: RegExpMatchArray | null;
+    let account: string;
+
+    // 先嘗試匹配標準格式（有空格）
+    accountMatch = afterBankCode.match(/^\s+(\d{1,16})/);
+
+    if (accountMatch && accountMatch[1]) {
+      // 標準格式：有空格分隔
+      account = accountMatch[1];
+    } else {
+      // 可能是連續數字格式：如果 afterHead 以 7 位數字開頭（非3位+空格），
+      // 則帳號從第 8 位開始，直到遇到空格或非數字
+      const continuousMatch = afterHead.match(/^(\d{7})(\d{1,16})(\s|$)/);
+      if (continuousMatch && continuousMatch[2]) {
+        account = continuousMatch[2];
+        // 使用原始的 continuousMatch 作為 accountMatch，但只取帳號部分
+        accountMatch = continuousMatch;
+      } else {
+        // 嘗試匹配緊接在銀行代碼後的數字（無空格）
+        const noSpaceMatch = afterBankCode.match(/^(\d{1,16})(\s|$)/);
+        if (noSpaceMatch && noSpaceMatch[1]) {
+          account = noSpaceMatch[1];
+          accountMatch = noSpaceMatch;
+        } else {
+          logger.debug('解析失敗：無法識別付款人帳號', {
+            afterHead: afterHead.substring(0, 40),
+            afterBankCode: afterBankCode.substring(0, 40),
+          });
+          return null;
+        }
+      }
+    }
 
     const serialMatch = lineLatin1.match(/(\d{8})\s+TWD\+/);
-    if (!serialMatch || !serialMatch[1]) return null;
+    if (!serialMatch || !serialMatch[1]) {
+      logger.debug('解析失敗：無法找到交易序號和TWD+', {
+        lineSearch: lineLatin1.includes('TWD+') ? 'found TWD+' : 'no TWD+',
+        linePreview: lineLatin1.substring(40, 80),
+      });
+      return null;
+    }
     const serial = serialMatch[1];
 
     const twdIdx = lineLatin1.indexOf('TWD+');
-    if (twdIdx === -1) return null;
+    if (twdIdx === -1) {
+      logger.debug('解析失敗：找不到 TWD+', {
+        linePreview: lineLatin1.substring(50, 100),
+      });
+      return null;
+    }
 
     const afterTwd = lineLatin1.slice(twdIdx + 4);
     const amountMatch = afterTwd.match(/^(\d{17})/);
@@ -65,22 +139,38 @@ export class BankConverterService {
 
     // 最後 6 位數：手續費分攤方式（前2位是13或15，後面補0，如130000、150000）
     const handlingFeeMatch = lineLatin1.match(/(\d{6})\s*$/);
-    if (!handlingFeeMatch || !handlingFeeMatch[1]) return null;
+    if (!handlingFeeMatch || !handlingFeeMatch[1]) {
+      logger.debug('解析失敗：無法找到最後6位手續費分攤方式', {
+        lineEnd: lineLatin1.substring(Math.max(0, lineLatin1.length - 20)),
+      });
+      return null;
+    }
     const originalHandlingFeeAllocation = handlingFeeMatch[1];
 
     // 找最後那個「單獨的 0 欄位」（收款人是否電告），以它作為收款戶名結束點
     let zeroPos = -1;
     for (let pos = lineLatin1.length - 1; pos >= 0; pos--) {
       if (lineLatin1[pos] === '0') {
-        const prev = lineLatin1[pos - 1];
-        const next = lineLatin1[pos + 1];
+        const prev = pos > 0 ? lineLatin1[pos - 1] : '';
+        const next = pos < lineLatin1.length - 1 ? lineLatin1[pos + 1] : '';
         if (prev === ' ' && next === ' ') {
+          zeroPos = pos;
+          break;
+        }
+        // 也檢查行尾的情況（next 可能是空或換行）
+        if (prev === ' ' && (next === '' || next === '\r' || next === '\n')) {
           zeroPos = pos;
           break;
         }
       }
     }
-    if (zeroPos === -1) return null;
+    if (zeroPos === -1) {
+      logger.debug('解析失敗：找不到收款人是否電告的0欄位', {
+        lineEnd: lineLatin1.substring(Math.max(0, lineLatin1.length - 30)),
+        lineLength: lineLatin1.length,
+      });
+      return null;
+    }
 
     // 收款戶名在「收款帳號結束」到「zeroPos」之間（去掉空白）
     const receiveNameRaw = lineLatin1.slice(receiveAccEndAbs, zeroPos).trim();
@@ -255,24 +345,72 @@ export class BankConverterService {
     const inputLatin1 = inputBuffer.toString('latin1');
     const rawLines = inputLatin1.split(/\r?\n/);
 
+    logger.debug('開始轉換檔案', {
+      inputSize: inputBuffer.length,
+      totalLines: rawLines.length,
+    });
+
     const outLines: Buffer[] = [];
+    let parsedCount = 0;
+    let skippedCount = 0;
+    let emptyLineCount = 0;
 
     for (let i = 0; i < rawLines.length; i++) {
       const line = rawLines[i];
-      if (!line) continue;
+      if (!line) {
+        emptyLineCount++;
+        continue;
+      }
       const raw = line.replace(/\r$/, '');
-      if (!raw) continue;
+      if (!raw) {
+        emptyLineCount++;
+        continue;
+      }
 
       const parsed = this.parseBankLineBytes(raw);
-      if (!parsed) continue;
+      if (!parsed) {
+        skippedCount++;
+        // 記錄前幾行失敗的內容以便除錯
+        if (skippedCount <= 3) {
+          logger.debug(`無法解析第 ${i + 1} 行`, {
+            linePreview: raw.substring(0, 100),
+          });
+        }
+        continue;
+      }
 
       const outLineBuf = this.convertLine(parsed);
       outLines.push(outLineBuf);
+      parsedCount++;
+    }
+
+    logger.info('檔案轉換統計', {
+      totalLines: rawLines.length,
+      parsedCount,
+      skippedCount,
+      emptyLineCount,
+    });
+
+    // 如果沒有任何行被成功解析，拋出錯誤
+    if (outLines.length === 0) {
+      const errorMsg = `無法解析檔案內容：已處理 ${rawLines.length} 行，跳過 ${skippedCount} 行，空行 ${emptyLineCount} 行。請確認檔案格式是否正確。預期格式：行首應為 "0        YYYYMMDDSPU/TRN"`;
+      logger.error(errorMsg, {
+        totalLines: rawLines.length,
+        skippedCount,
+        emptyLineCount,
+        firstFewLines: rawLines.slice(0, 3).map((l) => l.substring(0, 100)),
+      });
+      throw new Error(errorMsg);
     }
 
     // join with CRLF, keep bytes (Big5)
     const crlf = Buffer.from([0x0d, 0x0a]);
     const outputBuf = Buffer.concat(outLines.flatMap((l) => [l, crlf]));
+
+    logger.info('檔案轉換完成', {
+      outputSize: outputBuf.length,
+      outputLines: outLines.length,
+    });
 
     return outputBuf;
   }

@@ -5,6 +5,7 @@ import * as os from 'os';
 import multer from 'multer';
 import { BankConverterService } from '../services/BankConverterService';
 import { ErrorHandler } from '../utils/errorHandler';
+import { apiLogger } from '../services/LoggerService';
 
 /**
  * 國泰網銀付款檔案轉換 API
@@ -44,7 +45,7 @@ export default defineEventHandler(async (event) => {
 
     const upload = multer({
       storage,
-      fileFilter: (req, file, cb) => {
+      fileFilter: (req: any, file, cb: any) => {
         const fileExtension = file.originalname
           .toLowerCase()
           .substring(file.originalname.lastIndexOf('.'));
@@ -57,23 +58,64 @@ export default defineEventHandler(async (event) => {
     });
 
     uploadedFile = await new Promise<Express.Multer.File>((resolve, reject) => {
-      upload.single('file')(event.node.req, event.node.res, (err) => {
-        if (err) {
-          reject(err);
-        } else if (!event.node.req.file) {
-          reject(new Error('NO_FILE'));
-        } else {
-          resolve(event.node.req.file);
+      upload.single('file')(
+        event.node.req as any,
+        event.node.res as any,
+        (err: any) => {
+          if (err) {
+            reject(err);
+          } else if (!(event.node.req as any).file) {
+            reject(new Error('NO_FILE'));
+          } else {
+            resolve((event.node.req as any).file);
+          }
         }
-      });
+      );
     });
 
     // 讀取檔案 Buffer
+    apiLogger.info('開始處理銀行轉換請求', {
+      filename: uploadedFile.originalname,
+      size: uploadedFile.size,
+    });
+
     const inputBuffer = await fs.readFile(uploadedFile.path);
+
+    // 驗證檔案不為空
+    if (inputBuffer.length === 0) {
+      apiLogger.error('上傳的檔案是空檔案', {
+        filename: uploadedFile.originalname,
+      });
+      throw new Error('上傳的檔案是空檔案');
+    }
 
     // 轉換檔案
     const converter = new BankConverterService();
-    const outputBuffer = converter.convertFileBuffer(inputBuffer);
+    let outputBuffer: Buffer;
+    try {
+      outputBuffer = converter.convertFileBuffer(inputBuffer);
+    } catch (convertError: any) {
+      apiLogger.error('檔案轉換失敗', convertError, {
+        filename: uploadedFile.originalname,
+        inputSize: inputBuffer.length,
+      });
+      throw new Error(`檔案轉換失敗：${convertError.message || '未知錯誤'}`);
+    }
+
+    // 驗證轉換結果不為空
+    if (!outputBuffer || outputBuffer.length === 0) {
+      apiLogger.error('轉換後的檔案為空', {
+        filename: uploadedFile.originalname,
+        inputSize: inputBuffer.length,
+      });
+      throw new Error('轉換後的檔案為空，請檢查輸入檔案格式是否正確');
+    }
+
+    apiLogger.info('銀行轉換成功', {
+      filename: uploadedFile.originalname,
+      inputSize: inputBuffer.length,
+      outputSize: outputBuffer.length,
+    });
 
     // 生成檔名（台灣時間戳格式：MMDDHHRR，其中 RR 是分鐘）
     // 使用 Intl.DateTimeFormat 取得台灣時間
@@ -100,7 +142,7 @@ export default defineEventHandler(async (event) => {
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(filename)}"`
     );
-    setHeader(event, 'Content-Length', outputBuffer.length.toString());
+    setHeader(event, 'Content-Length', outputBuffer.length);
 
     // 清理暫存檔案
     await fs.unlink(uploadedFile.path).catch(() => {
