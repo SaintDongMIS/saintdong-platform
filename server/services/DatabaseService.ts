@@ -11,6 +11,13 @@ export interface DatabaseResult {
 }
 
 export class DatabaseService {
+  private static async getExistingColumnsSet(
+    tableName: string
+  ): Promise<Set<string>> {
+    const columns = await this.getTableInfo(tableName);
+    return new Set(columns.map((col: any) => col.COLUMN_NAME));
+  }
+
   /**
    * 檢查表單編號是否已存在
    */
@@ -36,43 +43,85 @@ export class DatabaseService {
   }
 
   /**
-   * 批次插入資料到資料庫 - 移除檔案內部重複檢查，只保留資料庫重複檢查
+   * [重構] 標準化欄位值以進行比較或插入
+   * @param value 任意值
+   * @param type 'string' | 'date' | 'decimal'
+   * @returns 標準化後的值
+   */
+  private static normalizeValue(
+    value: any,
+    type: 'string' | 'date' | 'decimal'
+  ): string {
+    if (value === null || value === undefined || value === '') {
+      if (type === 'decimal') return '0.00';
+      return '';
+    }
+
+    switch (type) {
+      case 'string':
+        return value.toString().trim();
+
+      case 'date':
+        if (value instanceof Date) {
+          // 加上 '|| ''' 確保類型安全，滿足 TypeScript 編譯器
+          return value.toISOString().split('T')[0] || '';
+        }
+        const dateStr = value.toString();
+        const dateMatch = dateStr.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})/);
+        return dateMatch
+          ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+          : dateStr.trim();
+
+      case 'decimal':
+        return parseFloat(String(value)).toFixed(2);
+
+      default:
+        return value.toString().trim();
+    }
+  }
+
+  /**
+   * [重構] 為費用報銷單建立複合鍵
+   * 複合鍵：表單編號-發票號碼-交易日期-項目原幣金額-[費用項目]
+   * - 費用項目為可選，為空時不加入鍵中
+   */
+  private static buildExpendFormCompositeKey(row: ExcelRow): string | null {
+    const formNumber = this.normalizeValue(row['表單編號'], 'string');
+    if (!formNumber) return null;
+
+    const invoiceNumber = this.normalizeValue(row['發票號碼'], 'string');
+    const transactionDate = this.normalizeValue(row['交易日期'], 'date');
+    const itemAmount = this.normalizeValue(row['項目原幣金額'], 'decimal');
+    const expenseItem = this.normalizeValue(row['費用項目'], 'string');
+
+    // 核心邏輯：如果費用項目存在，則將其包含在鍵中
+    const keyParts = [formNumber, invoiceNumber, transactionDate, itemAmount];
+    if (expenseItem) {
+      keyParts.push(expenseItem);
+    }
+
+    return keyParts.join('-');
+  }
+
+  /**
+   * [重構] 批次插入費用報銷單資料
    */
   static async batchInsertData(
     data: ExcelRow[],
-    tableName: string,
-    formNumberField: string = '表單編號'
+    tableName: string
   ): Promise<DatabaseResult> {
     return this.executeBatchInsert(
       data,
       tableName,
-      (row) => {
-        const formNumber = row[formNumberField];
-        if (!formNumber) {
-          return null;
-        }
-
-        const trimmedFormNumber = formNumber.toString().trim();
-        const expenseItem = row['費用項目'] || '';
-        const invoiceNumber = row['發票號碼'] || '';
-        const transactionDate = row['交易日期'] || '';
-        const itemAmount = parseFloat(row['項目原幣金額'] || '0').toFixed(2);
-
-        return `${trimmedFormNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
-      },
-      (row) => {
-        const formNumber = row[formNumberField];
-        if (!formNumber) {
-          return `資料行缺少表單編號: ${JSON.stringify(row)}`;
-        }
-        return null;
-      },
-      this.batchCheckExistingData.bind(this)
+      DatabaseService.buildExpendFormCompositeKey.bind(DatabaseService),
+      (row) =>
+        !row['表單編號'] ? `資料行缺少表單編號: ${JSON.stringify(row)}` : null,
+      DatabaseService.batchCheckExistingData.bind(DatabaseService)
     );
   }
 
   /**
-   * 批次檢查已存在的資料 - 單次查詢，O(1) 效能
+   * [重構] 批次檢查已存在的資料 - 使用標準化的複合鍵
    */
   private static async batchCheckExistingData(
     transaction: any,
@@ -81,45 +130,103 @@ export class DatabaseService {
   ): Promise<Set<string>> {
     if (data.length === 0) return new Set();
 
-    // 建立所有可能的複合鍵
-    const compositeKeys = data
-      .map((row) => {
-        const formNumber = row['表單編號']?.toString().trim() || '';
-        const expenseItem = row['費用項目'] || '';
-        const invoiceNumber = row['發票號碼'] || '';
-        const transactionDate = row['交易日期'] || '';
-        const itemAmount = parseFloat(row['項目原幣金額'] || '0').toFixed(2);
-        return `${formNumber}-${expenseItem}-${invoiceNumber}-${transactionDate}-${itemAmount}`;
-      })
-      .filter((key) => key !== '----'); // 過濾空鍵
+    // 1. 從上傳資料中生成所有可能的複合鍵
+    const compositeKeysFromUpload = new Set<string>();
+    data.forEach((row) => {
+      // 為了處理「費用項目從無到有」的更新情況，我們為每一行產生兩種可能的鍵：
+      // a. 包含費用項目的精確鍵
+      // b. 不含費用項目的寬鬆鍵
+      const formNumber = this.normalizeValue(row['表單編號'], 'string');
+      if (!formNumber) return;
 
-    if (compositeKeys.length === 0) return new Set();
+      const invoiceNumber = this.normalizeValue(row['發票號碼'], 'string');
+      const transactionDate = this.normalizeValue(row['交易日期'], 'date');
+      const itemAmount = this.normalizeValue(row['項目原幣金額'], 'decimal');
+      const expenseItem = this.normalizeValue(row['費用項目'], 'string');
 
-    // 使用 IN 子查詢，效能最佳
+      // 產生寬鬆鍵 (一定有)
+      compositeKeysFromUpload.add(
+        [formNumber, invoiceNumber, transactionDate, itemAmount].join('-')
+      );
+      // 如果有費用項目，額外產生精確鍵
+      if (expenseItem) {
+        compositeKeysFromUpload.add(
+          [
+            formNumber,
+            invoiceNumber,
+            transactionDate,
+            itemAmount,
+            expenseItem,
+          ].join('-')
+        );
+      }
+    });
+
+    const keysToQuery = Array.from(compositeKeysFromUpload).filter(Boolean);
+    if (keysToQuery.length === 0) return new Set();
+
+    // 2. 在資料庫中一次性查詢所有匹配的鍵
     const request = new sql.Request(transaction);
-    const query = `
-      SELECT DISTINCT 
-        [表單編號] + '-' + ISNULL([費用項目], '') + '-' + ISNULL([發票號碼], '') + '-' + 
-        CONVERT(VARCHAR(10), [交易日期], 120) + '-' + CAST([項目原幣金額] AS VARCHAR(20)) as composite_key
-      FROM ${tableName}
-      WHERE [表單編號] + '-' + ISNULL([費用項目], '') + '-' + ISNULL([發票號碼], '') + '-' + 
-            CONVERT(VARCHAR(10), [交易日期], 120) + '-' + CAST([項目原幣金額] AS VARCHAR(20)) 
-            IN (${compositeKeys.map((_, i) => `@key${i}`).join(', ')})
-    `;
-
-    // 設定參數
-    compositeKeys.forEach((key, i) => {
+    const placeholders = keysToQuery.map((_, i) => `@key${i}`).join(', ');
+    keysToQuery.forEach((key, i) => {
       request.input(`key${i}`, sql.NVarChar, key);
     });
+
+    // SQL 查詢邏輯：
+    // - 同時生成兩種複合鍵 (有/無費用項目)，並與傳入的鍵比對
+    // - 這樣無論資料庫中的費用項目是 NULL 還是有值，都能被正確匹配
+    const query = `
+      SELECT DISTINCT composite_key FROM (
+        -- 情況1: 費用項目為 NULL 或空字串
+        SELECT 
+          [表單編號] + '-' + 
+          ISNULL(NULLIF([發票號碼], ''), '') + '-' + 
+          CONVERT(VARCHAR(10), [交易日期], 120) + '-' + 
+          FORMAT([項目原幣金額], 'F2') as composite_key
+        FROM ${tableName}
+        WHERE ISNULL([費用項目], '') = ''
+
+        UNION ALL
+
+        -- 情況2: 費用項目有值
+        SELECT 
+          [表單編號] + '-' + 
+          ISNULL(NULLIF([發票號碼], ''), '') + '-' + 
+          CONVERT(VARCHAR(10), [交易日期], 120) + '-' + 
+          FORMAT([項目原幣金額], 'F2') + '-' +
+          [費用項目] as composite_key
+        FROM ${tableName}
+        WHERE ISNULL([費用項目], '') <> ''
+      ) AS existing_keys
+      WHERE composite_key IN (${placeholders})
+    `;
 
     const result = await request.query(query);
     return new Set(result.recordset.map((row) => row.composite_key));
   }
 
   /**
-   * 道路施工部批次插入資料
-   *
-   * 使用派工單號 + 廠商名稱 + 項目名稱 + 日期作為複合鍵檢查重複
+   * [新增] 為道路施工部表單建立複合鍵
+   * 複合鍵：派工單號-廠商名稱-項目名稱-日期
+   */
+  private static buildRoadConstructionCompositeKey(
+    row: ExcelRow
+  ): string | null {
+    const workOrderNumber = this.normalizeValue(row['派工單號'], 'string');
+    const vendorName = this.normalizeValue(row['廠商名稱'], 'string');
+    const itemName = this.normalizeValue(row['項目名稱'], 'string');
+    const date = this.normalizeValue(row['日期'], 'date');
+
+    if (!workOrderNumber || !itemName || !date) {
+      return null;
+    }
+
+    return [workOrderNumber, vendorName, itemName, date].join('-');
+  }
+
+  /**
+   * [重構] 道路施工部批次插入資料
+   * - 應用策略模式，使用 buildRoadConstructionCompositeKey
    */
   static async batchInsertRoadConstructionData(
     data: ExcelRow[],
@@ -128,20 +235,11 @@ export class DatabaseService {
     return this.executeBatchInsert(
       data,
       tableName,
-      (row) => {
-        const workOrderNumber = row['派工單號']?.toString().trim() || '';
-        const vendorName = row['廠商名稱']?.toString().trim() || '';
-        const itemName = row['項目名稱']?.toString().trim() || '';
-        const date = row['日期']?.toString().trim() || '';
-
-        if (!workOrderNumber || !itemName || !date) {
-          return null;
-        }
-
-        return `${workOrderNumber}-${vendorName}-${itemName}-${date}`;
-      },
+      DatabaseService.buildRoadConstructionCompositeKey.bind(DatabaseService),
       () => null, // 道路施工部不需要額外驗證
-      this.batchCheckExistingDataRoadConstruction.bind(this),
+      DatabaseService.batchCheckExistingDataRoadConstruction.bind(
+        DatabaseService
+      ),
       (error) => {
         // 處理 UNIQUE CONSTRAINT 違反
         return (
@@ -182,6 +280,9 @@ export class DatabaseService {
     try {
       await transaction.begin();
 
+      const existingColumns = await this.getExistingColumnsSet(tableName);
+      const unknownColumns = new Set<string>();
+
       // 批次檢查已存在的資料
       const existingData = await checkExistingData(
         transaction,
@@ -211,8 +312,31 @@ export class DatabaseService {
             continue;
           }
 
+          const filteredRow = Object.fromEntries(
+            Object.entries(row).filter(([columnName]) => {
+              const exists = existingColumns.has(columnName);
+              if (!exists) {
+                unknownColumns.add(columnName);
+              }
+              return exists;
+            })
+          );
+
+          if (Object.keys(filteredRow).length === 0) {
+            const errorMsg = `插入資料行失敗: 無任何可用欄位（資料表不存在對應欄位） - ${JSON.stringify(
+              row
+            )}`;
+            result.errors.push(errorMsg);
+            dbLogger.error(errorMsg);
+            continue;
+          }
+
           // 插入新資料
-          await this.insertRowInTransaction(transaction, row, tableName);
+          await this.insertRowInTransaction(
+            transaction,
+            filteredRow,
+            tableName
+          );
           result.insertedCount++;
         } catch (rowError) {
           // 處理特定錯誤（如 UNIQUE CONSTRAINT 違反）
@@ -227,6 +351,13 @@ export class DatabaseService {
           result.errors.push(errorMsg);
           dbLogger.error(errorMsg);
         }
+      }
+
+      if (unknownColumns.size > 0) {
+        dbLogger.warn('忽略未在資料表中定義的欄位', {
+          tableName,
+          columns: Array.from(unknownColumns),
+        });
       }
 
       await transaction.commit();
@@ -251,7 +382,8 @@ export class DatabaseService {
   }
 
   /**
-   * 道路施工部：批次檢查已存在的資料
+   * [重構] 道路施工部：批次檢查已存在的資料
+   * - 使用標準化的複合鍵生成邏輯
    */
   private static async batchCheckExistingDataRoadConstruction(
     transaction: any,
@@ -261,17 +393,10 @@ export class DatabaseService {
     if (data.length === 0) return new Set();
 
     const compositeKeys = data
-      .map((row) => {
-        const workOrderNumber = row['派工單號']?.toString().trim() || '';
-        const vendorName = row['廠商名稱']?.toString().trim() || '';
-        const itemName = row['項目名稱']?.toString().trim() || '';
-        const date = row['日期']?.toString().trim() || '';
-        return `${workOrderNumber}-${vendorName}-${itemName}-${date}`;
-      })
-      .filter((key) => {
-        const parts = key.split('-');
-        return parts.length === 4 && parts.every((part) => part !== '');
-      });
+      .map(
+        DatabaseService.buildRoadConstructionCompositeKey.bind(DatabaseService)
+      )
+      .filter((key): key is string => !!key);
 
     if (compositeKeys.length === 0) return new Set();
 
@@ -357,21 +482,38 @@ export class DatabaseService {
     row: ExcelRow,
     tableName: string
   ): Promise<void> {
-    const request = new sql.Request(transaction);
     const columns = Object.keys(row);
     const values = Object.values(row);
 
     // 建立 SQL 語句
-    const columnNames = columns.map((col) => `[${col}]`).join(', ');
-    const parameterNames = columns
-      .map((_, index) => `@param${index}`)
+    // 過濾掉 [建立時間] 與 [更新時間] 欄位，讓資料庫使用預設值
+    // 同時過濾掉不在資料表欄位定義中的多餘欄位 (這在 filteredRow 已經處理過了，但為了保險再確認一次)
+
+    const columnsToInsert = columns.filter(
+      (col) => col !== '建立時間' && col !== '更新時間'
+    );
+
+    if (columnsToInsert.length === 0) {
+      // 理論上不應該發生，除非整行只有時間欄位
+      return;
+    }
+
+    const columnNames = columnsToInsert.map((col) => `[${col}]`).join(', ');
+    const parameterNames = columnsToInsert
+      .map((_, index) => `@param${index}`) // 注意這裡的 index 對應的是 columnsToInsert 的索引
       .join(', ');
 
+    const request = new sql.Request(transaction);
+
     // 設定參數
-    columns.forEach((col, index) => {
+    columnsToInsert.forEach((col, index) => {
+      // 找出原始 values 中對應的值
+      const originalIndex = columns.indexOf(col);
+      const value = values[originalIndex];
+
       const { sqlType, convertedValue } = this.convertValueForInsert(
         col,
-        values[index]
+        value
       );
       request.input(`param${index}`, sqlType, convertedValue);
     });
@@ -486,7 +628,7 @@ export class DatabaseService {
 
     // 關鍵字匹配（使用陣列，順序重要）
     const keywordPatterns = [
-      { keywords: ['日期', '時間'], type: sql.Date },
+      { keywords: ['日期', '時間', '期限'], type: sql.Date },
       {
         keywords: ['金額', '總計', '稅額', '單價'],
         type: sql.Decimal(18, 2),

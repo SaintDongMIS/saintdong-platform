@@ -109,10 +109,9 @@ API 端點定義在 `server/api/` 目錄下，例如：
 
 - `POST /api/upload/finance`: 處理財務部檔案上傳
 - `POST /api/upload/road-construction`: 處理道路施工部檔案上傳
-- `POST /api/create-table`: 建立財務部資料表
-- `POST /api/create-table-road-construction`: 建立道路施工部資料表
-- `POST /api/update-table`: 更新資料表結構
-- `GET /api/table-info`: 取得資料表資訊
+- `GET /api/finance/reports`: 取得財務報表資料
+
+**注意**: `create-table` 和 `update-table` 相關的 API 端點已被新的資料庫遷移流程取代，應視為已棄用。
 
 ### 核心服務
 
@@ -175,10 +174,10 @@ API 端點定義在 `server/api/` 目錄下，例如：
     - **高效的重複資料檢查**: 採用「複合鍵」概念，並透過單次批次查詢 (`batchCheckExistingData`) 檢查資料庫中所有已存在的紀錄，效能遠高於逐筆檢查。
     - **動態型別對應**: 根據欄位名稱智慧判斷應使用的 SQL 資料類型，確保日期、金額等資料以最正確的格式儲存。
 
-3.  **自動化的資料庫結構管理 (`TableDefinitionService`)**:
+3.  **資料庫結構管理 (`TableDefinitionService` + `Knex.js`)**:
 
-    - **單一事實來源**: `TableDefinitionService.ts` 是資料表結構的唯一權威來源，所有欄位修改都集中於此。
-    - **自動結構遷移**: 系統在啟動或上傳時會自動比對資料庫結構與程式碼定義，若有差異（如新增欄位），會自動執行 `ALTER TABLE` 指令進行更新，大幅簡化了部署與維護流程。
+    - **單一事實來源 (藍圖)**: `server/services/TableDefinitionService.ts` 是資料表結構的**唯一權威藍圖**。所有期望的欄位定義、順序和類型都應在此檔案中修改。
+    - **版本控制的遷移**: 所有的資料庫結構**變更**都是透過 `knex.js` 遷移腳本來執行。這取代了原有的自動 `ALTER TABLE` 機制，提供了版本控制、可追溯性與更高的安全性。詳細流程請參閱下方的「資料庫遷移」章節。
 
 4.  **結構化的日誌系統 (`LoggerService`)**:
     - 提供帶有時間戳、服務來源、日誌級別的結構化日誌，便於後續的問題追蹤與系統監控。
@@ -252,9 +251,97 @@ server/
 ### 資料表設計
 
 - **ExpendForm**: 費用報銷資料表
-- **自動結構更新**: 支援動態欄位新增
+- **RoadConstructionForm**: 道路施工部資料表
+- **結構管理**: 所有資料表的建立與變更皆由 `knex` 遷移腳本管理。
 - **重複檢查**: 防止重複資料插入
 - **索引優化**: 提升查詢效能
+
+### 資料庫遷移 (Database Migration) - 標準作業流程 (SOP)
+
+為了確保資料庫結構的變更有序、可追溯且在所有開發環境中保持一致，本專案採用 `knex.js` 進行資料庫遷移管理。**所有資料庫的結構變更（新增/修改/刪除資料表或欄位）都必須遵循此流程。**
+
+#### 核心理念
+
+- **程式碼即架構**: 任何資料庫結構的變更，都必須對應到一個版本控制的遷移腳本檔案。
+- **不可變的歷史**: 已經執行過的遷移腳本不應再被修改，若要撤銷變更，應建立一支新的遷移腳本來執行反向操作。
+
+#### 標準作業流程 (SOP)
+
+##### **步驟 1: 修改「藍圖」**
+
+首先，修改 `server/services/TableDefinitionService.ts` 中的 schema 字串，以反映您期望的**最終狀態**。
+
+```typescript
+// server/services/TableDefinitionService.ts
+
+export const reimbursementTableSchema = `
+  ...
+  [付款銀行名稱] NVARCHAR(50),
+  [付款對象帳戶號碼] NVARCHAR(50),
+  [新增的欄位] NVARCHAR(100)  // <-- 新增或修改欄位
+  ...
+`;
+```
+
+##### **步驟 2: 建立新的「施工計畫」(遷移腳本)**
+
+在終端機中，使用 `knex` CLI 建立一支新的遷移腳本。檔名應清楚描述此次變更的目的。
+
+```bash
+# 範例：為 ExpendForm 新增一個備註欄位
+npx knex migrate:make -x ts add_memo_to_expendform
+```
+
+此指令會在 `server/migrations/` 目錄下建立一個帶有時間戳的新檔案。
+
+##### **步驟 3: 撰寫「施工計畫」的具體內容**
+
+打開新建立的遷移檔案，填寫 `up` 和 `down` 兩個方法。
+
+- **`up()`**: 定義如何**應用**此次變更。
+- **`down()`**: 定義如何**撤銷**此次變更。
+
+```typescript
+// server/migrations/YYYYMMDDHHMMSS_add_memo_to_expendform.ts
+
+import type { Knex } from 'knex';
+
+const tableName = 'ExpendForm';
+
+export async function up(knex: Knex): Promise<void> {
+  await knex.schema.alterTable(tableName, (table) => {
+    // 新增一個名為「新備註」的欄位，類型為 NVARCHAR(500)，允許 NULL
+    table.string('新備註', 500).nullable();
+  });
+}
+
+export async function down(knex: Knex): Promise<void> {
+  await knex.schema.alterTable(tableName, (table) => {
+    // 移除「新備註」欄位
+    table.dropColumn('新備註');
+  });
+}
+```
+
+##### **步驟 4: 執行「施工」**
+
+在本地開發環境儲存遷移腳本後，執行以下指令來更新資料庫。
+
+```bash
+npx knex migrate:latest
+```
+
+`knex` 會自動找到所有尚未執行的遷移腳本，並依序執行它們的 `up` 方法。
+
+##### **(可選) 步驟 5: 撤銷上一次的變更 (回滾)**
+
+如果發現剛才的遷移有問題，可以執行以下指令來回滾**最新一批**的變更。
+
+```bash
+npx knex migrate:rollback
+```
+
+此指令會執行最新一批遷移腳本的 `down` 方法。
 
 ## 開發規範
 

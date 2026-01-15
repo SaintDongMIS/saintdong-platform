@@ -72,8 +72,24 @@ export class EmailService {
       errors?: string[];
     };
   }): Promise<void> {
+    // 開發環境：可以透過環境變數關閉 email 功能
+    const disableEmail =
+      process.env.DISABLE_EMAIL === 'true' || process.env.DISABLE_EMAIL === '1';
+    if (disableEmail) {
+      uploadLogger.info('📧 EMAIL 功能已關閉（DISABLE_EMAIL=true）', {
+        department: uploadResult.department,
+        fileName: uploadResult.data.fileName,
+      });
+      return;
+    }
+
+    // 如果沒有設定收件人，也不發送
     const recipient = process.env.EMAIL_TO;
     if (!recipient) {
+      uploadLogger.info('📧 EMAIL 功能已關閉（未設定 EMAIL_TO）', {
+        department: uploadResult.department,
+        fileName: uploadResult.data.fileName,
+      });
       return;
     }
 

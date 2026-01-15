@@ -415,8 +415,8 @@ export class ExcelService {
    * 清理欄位名稱，移除特殊字元
    */
   private static cleanHeaderName(header: string): string {
-    // 移除開頭的星號
-    return header.replace(/^\*/, '');
+    // 保留原始欄位名稱，包括星號，僅去除前後空白
+    return header.trim();
   }
 
   /**
@@ -458,7 +458,7 @@ export class ExcelService {
    * 判斷是否為日期欄位
    */
   private static isDateField(header: string): boolean {
-    return header.includes('日期');
+    return header.includes('日期') || header.includes('期限');
   }
 
   /**
@@ -543,10 +543,10 @@ export class ExcelService {
       if (
         row['供應商/銀行/員工'] === '員工' &&
         !row['付款銀行名稱'] &&
-        row['付款銀行代號']
+        row['付款銀行代碼']
       ) {
         const bankName = DataEnrichmentService.getBankNameByCode(
-          row['付款銀行代號']
+          row['付款銀行代碼']
         );
         if (bankName) {
           row['付款銀行名稱'] = bankName;
