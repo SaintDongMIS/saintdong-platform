@@ -278,7 +278,12 @@ export class ExcelService {
     // == 特殊規則：強制以從屬紀錄的空值覆寫特定欄位 (2025-10-21 新增) ==
     // == 若要恢復舊版行為，可將此區塊整個註解掉。                  ==
     // =================================================================
-    const forceOverrideFields = ['費用項目', '會計科目', '會計科目代號'];
+    const forceOverrideFields = [
+      '費用項目',
+      '會計科目',
+      '會計科目代號',
+      '會計科目原幣金額',
+    ];
     forceOverrideFields.forEach((field) => {
       const headerIndex = headers.indexOf(field);
       if (headerIndex !== -1) {
@@ -596,6 +601,12 @@ export class ExcelService {
       detailRow['發票未稅金額'] = '0';
       detailRow['發票含稅金額'] = '0';
       // 保留分攤金額 (detailRow['分攤金額'])
+    }
+
+    // 規則三：確保會計科目與會計科目原幣金額的一致性
+    // 當會計科目為空時，會計科目原幣金額也應該為空（NULL），保持資料一致性
+    if (this.isValueEmpty(detailRow['會計科目'])) {
+      detailRow['會計科目原幣金額'] = '';
     }
   }
 }
