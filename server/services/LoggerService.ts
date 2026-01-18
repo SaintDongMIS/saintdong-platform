@@ -121,3 +121,4 @@ export const apiLogger = logger.service('API');
 export const dbLogger = logger.service('Database');
 export const excelLogger = logger.service('Excel');
 export const uploadLogger = logger.service('Upload');
+export const automationLogger = logger.service('Automation');

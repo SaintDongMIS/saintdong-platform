@@ -111,6 +111,32 @@
               <span>網銀付款txt轉檔</span>
             </div>
           </button>
+          <button
+            @click="activeTab = 'fillPaymentReason'"
+            :class="[
+              'py-4 px-1 border-b-2 font-medium text-sm transition-colors',
+              activeTab === 'fillPaymentReason'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+            ]"
+          >
+            <div class="flex items-center space-x-2">
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                ></path>
+              </svg>
+              <span>付款報表事由填補</span>
+            </div>
+          </button>
         </nav>
 
         <!-- 隱藏的 jim測試用 按鈕 -->
@@ -277,6 +303,157 @@
               轉換中...
             </span>
             <span v-else>轉換檔案</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 付款報表事由填補 -->
+      <div v-if="activeTab === 'fillPaymentReason'">
+        <div class="bg-white rounded-lg shadow-sm border p-6">
+          <div class="text-center mb-8">
+            <div
+              class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4"
+            >
+              <svg
+                class="w-8 h-8 text-purple-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                ></path>
+              </svg>
+            </div>
+            <h2 class="text-xl font-semibold text-gray-900 mb-2">
+              付款報表事由填補
+            </h2>
+            <p class="text-gray-600">
+              上傳付款報表 Excel 檔案，系統將自動從資料庫填補「事由」欄位
+            </p>
+          </div>
+
+          <div
+            class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors cursor-pointer"
+            @dragover.prevent="isFillPaymentReasonDragOver = true"
+            @dragleave.prevent="isFillPaymentReasonDragOver = false"
+            @drop.prevent="handleFillPaymentReasonFileDrop"
+            @click="$refs.fillPaymentReasonFileInput.click()"
+            :class="{ 'border-purple-400 bg-purple-50': isFillPaymentReasonDragOver }"
+          >
+            <input
+              ref="fillPaymentReasonFileInput"
+              type="file"
+              accept=".xlsx,.xls"
+              @change="handleFillPaymentReasonFileSelect"
+              class="hidden"
+            />
+
+            <div v-if="!fillPaymentReasonSelectedFile">
+              <svg
+                class="mx-auto h-12 w-12 text-gray-400"
+                stroke="currentColor"
+                fill="none"
+                viewBox="0 0 48 48"
+              >
+                <path
+                  d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <div class="mt-4">
+                <p class="text-sm text-gray-600">
+                  拖曳檔案到這裡，或
+                  <span class="text-purple-600 font-medium">點擊選擇檔案</span>
+                </p>
+                <p class="text-xs text-gray-500 mt-1">支援 .xlsx, .xls 檔案</p>
+              </div>
+            </div>
+
+            <div v-else class="text-left">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                  <svg
+                    class="h-8 w-8 text-green-500 mr-3"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    ></path>
+                  </svg>
+                  <div>
+                    <p class="text-sm font-medium text-gray-900">
+                      {{ fillPaymentReasonSelectedFile.name }}
+                    </p>
+                    <p class="text-xs text-gray-500">
+                      {{ formatFileSize(fillPaymentReasonSelectedFile.size) }}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  @click="clearFillPaymentReasonFile"
+                  class="text-red-500 hover:text-red-700"
+                >
+                  <svg
+                    class="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M6 18L18 6M6 6l12 12"
+                    ></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button
+            @click="fillPaymentReason"
+            :disabled="!fillPaymentReasonSelectedFile || isFillPaymentReasonProcessing"
+            class="w-full mt-4 bg-purple-600 text-white py-3 px-4 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            <span
+              v-if="isFillPaymentReasonProcessing"
+              class="flex items-center justify-center"
+            >
+              <svg
+                class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              處理中...
+            </span>
+            <span v-else>填補事由</span>
           </button>
         </div>
       </div>
@@ -597,6 +774,11 @@ const bankConvertSelectedFile = ref(null);
 const isBankConvertProcessing = ref(false);
 const isBankConvertDragOver = ref(false);
 
+// 付款報表事由填補 相關狀態
+const fillPaymentReasonSelectedFile = ref(null);
+const isFillPaymentReasonProcessing = ref(false);
+const isFillPaymentReasonDragOver = ref(false);
+
 // jim測試用 相關狀態
 const showJimTest = ref(false);
 const jimSelectedFile = ref(null);
@@ -838,6 +1020,113 @@ const convertBankFile = async () => {
     error('轉換失敗，請稍後再試');
   } finally {
     isBankConvertProcessing.value = false;
+  }
+};
+
+// 付款報表事由填補 相關方法
+const handleFillPaymentReasonFileSelect = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    validateAndSetFillPaymentReasonFile(file);
+  }
+};
+
+const handleFillPaymentReasonFileDrop = (event) => {
+  event.preventDefault();
+  isFillPaymentReasonDragOver.value = false;
+  const files = event.dataTransfer.files;
+  if (files.length > 0) {
+    const file = files[0];
+    validateAndSetFillPaymentReasonFile(file);
+  }
+};
+
+const validateAndSetFillPaymentReasonFile = (file) => {
+  const allowedExtensions = ['.xlsx', '.xls'];
+  const fileExtension = file.name
+    .toLowerCase()
+    .substring(file.name.lastIndexOf('.'));
+
+  if (!allowedExtensions.includes(fileExtension)) {
+    warning('請選擇 Excel 檔案 (.xlsx, .xls)');
+    return;
+  }
+
+  fillPaymentReasonSelectedFile.value = file;
+};
+
+const clearFillPaymentReasonFile = () => {
+  fillPaymentReasonSelectedFile.value = null;
+  if (typeof document !== 'undefined') {
+    const fileInput = document.querySelector(
+      'input[ref="fillPaymentReasonFileInput"]'
+    );
+    if (fileInput) fileInput.value = '';
+  }
+};
+
+const fillPaymentReason = async () => {
+  if (!fillPaymentReasonSelectedFile.value) return;
+
+  isFillPaymentReasonProcessing.value = true;
+
+  try {
+    const formData = new FormData();
+    formData.append('file', fillPaymentReasonSelectedFile.value);
+
+    const response = await fetch('/api/finance/fill-payment-reason', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || '處理失敗');
+    }
+
+    // 取得檔案 blob
+    const blob = await response.blob();
+
+    // 檢查 blob 是否為空
+    if (blob.size === 0) {
+      throw new Error('處理後的檔案為空，請檢查輸入檔案格式是否正確');
+    }
+
+    // 建立下載連結
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+
+    // 從 Content-Disposition header 取得檔名，或使用預設檔名
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = '付款報表_已填補事由.xlsx';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(
+        /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
+      );
+      if (filenameMatch && filenameMatch[1]) {
+        filename = decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
+      }
+    }
+
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    // 延遲顯示成功訊息，確保下載對話框不會遮擋 Toast
+    setTimeout(() => {
+      success('✅ 事由填補完成！檔案已下載', 6000);
+      clearFillPaymentReasonFile();
+    }, 300);
+  } catch (error) {
+    console.error('處理失敗:', error);
+    const errorMessage =
+      error instanceof Error ? error.message : '處理失敗，請稍後再試';
+    error(errorMessage);
+  } finally {
+    isFillPaymentReasonProcessing.value = false;
   }
 };
 

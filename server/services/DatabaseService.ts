@@ -699,6 +699,49 @@ export class DatabaseService {
   }
 
   /**
+   * 根據表單編號批量查詢費用報銷單的「請款原因-表單下方選項」
+   */
+  static async getReimbursementReasons(
+    formNumbers: string[]
+  ): Promise<ExcelRow[]> {
+    if (formNumbers.length === 0) {
+      return [];
+    }
+
+    const pool = await getConnectionPool();
+    const request = pool.request();
+    const placeholders: string[] = [];
+
+    // 創建動態參數
+    formNumbers.forEach((num, index) => {
+      const paramName = `formNumber${index}`;
+      request.input(paramName, sql.NVarChar, num);
+      placeholders.push(`@${paramName}`);
+    });
+
+    try {
+      dbLogger.info('開始從資料庫查詢請款原因', { formNumbers });
+      const query = `
+        SELECT
+          [表單編號],
+          [請款原因-表單下方選項]
+        FROM ExpendForm
+        WHERE [表單編號] IN (${placeholders.join(', ')})
+      `;
+      const result = await request.query(query);
+      dbLogger.info(`查詢到 ${result.recordset.length} 筆請款原因`);
+      return result.recordset as ExcelRow[];
+    } catch (error) {
+      dbLogger.error('查詢請款原因失敗', error);
+      throw new Error(
+        `資料庫查詢請款原因失敗: ${
+          error instanceof Error ? error.message : '未知錯誤'
+        }`
+      );
+    }
+  }
+
+  /**
    * 檢查資料庫連線狀態
    */
   static async checkConnectionStatus(): Promise<{

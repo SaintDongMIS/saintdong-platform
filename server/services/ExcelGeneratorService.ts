@@ -39,7 +39,7 @@ export class ExcelGeneratorService {
   /**
    * 生成 Excel 檔案 Buffer
    */
-  private static async generateExcelBuffer(
+  public static async generateExcelBuffer(
     processedData: ProcessedExcelData
   ): Promise<Buffer> {
     try {
@@ -109,13 +109,21 @@ export class ExcelGeneratorService {
   }
 
   /**
-   * 生成檔案名稱
+   * 生成檔案名稱（使用台灣時間）
    */
   static generateFileName(originalName: string): string {
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, '-')
-      .slice(0, 19);
+    const now = new Date();
+    // 轉換為台灣時間（UTC+8）
+    const taiwanTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    
+    const year = taiwanTime.getUTCFullYear();
+    const month = String(taiwanTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(taiwanTime.getUTCDate()).padStart(2, '0');
+    const hour = String(taiwanTime.getUTCHours()).padStart(2, '0');
+    const minute = String(taiwanTime.getUTCMinutes()).padStart(2, '0');
+    const second = String(taiwanTime.getUTCSeconds()).padStart(2, '0');
+    
+    const timestamp = `${year}-${month}-${day}_${hour}-${minute}-${second}`;
     const nameWithoutExt = originalName.replace(/\.[^/.]+$/, '');
     return `${nameWithoutExt}_處理後_${timestamp}.xlsx`;
   }

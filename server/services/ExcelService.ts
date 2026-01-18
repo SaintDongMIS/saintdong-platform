@@ -359,7 +359,7 @@ export class ExcelService {
   /**
    * 檢查值是否為空
    */
-  private static isValueEmpty(value: any): boolean {
+  public static isValueEmpty(value: any): boolean {
     if (value === null || value === undefined || value === '') return true;
     if (typeof value === 'string' && value.trim() === '') return true;
     return false;
