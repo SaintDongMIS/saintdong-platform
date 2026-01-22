@@ -138,13 +138,19 @@ export function validateDate(dateString: string): { valid: boolean; message?: st
     return { valid: false, message: '日期不可為空' };
   }
   
+  // 轉換日期字串：如果是 ISO 8601 格式（包含 T），先轉換為 YYYY-MM-DD
+  let cleanedDate = String(dateString);
+  if (cleanedDate.includes('T')) {
+    cleanedDate = cleanedDate.split('T')[0] || cleanedDate;
+  }
+  
   // 驗證日期格式 YYYY-MM-DD
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRegex.test(dateString)) {
+  if (!dateRegex.test(cleanedDate)) {
     return { valid: false, message: '日期格式錯誤（應為 YYYY-MM-DD）' };
   }
   
-  const date = new Date(dateString);
+  const date = new Date(cleanedDate);
   if (isNaN(date.getTime())) {
     return { valid: false, message: '無效的日期' };
   }

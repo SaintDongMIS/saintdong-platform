@@ -343,9 +343,25 @@ const handleAddRecord = async (newRecord) => {
 
 const handleUpdateRecord = async (record) => {
   try {
+    // 格式化日期為 YYYY-MM-DD 格式
+    const formattedRecord = {
+      ...record,
+    };
+    
+    // 確保日期格式正確
+    if (formattedRecord.日期) {
+      if (formattedRecord.日期 instanceof Date) {
+        // 如果是 Date 物件，轉換為 YYYY-MM-DD
+        formattedRecord.日期 = formattedRecord.日期.toISOString().split('T')[0];
+      } else {
+        // 如果是字串，確保移除時間部分
+        formattedRecord.日期 = String(formattedRecord.日期).split('T')[0];
+      }
+    }
+    
     await $fetch(`/api/construction/records/${record.DCRid}`, {
       method: 'PUT',
-      body: record,
+      body: formattedRecord,
     });
 
     success('更新成功');
