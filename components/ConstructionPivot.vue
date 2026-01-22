@@ -282,13 +282,23 @@ const filteredRecords = computed(() => {
     );
   }
 
-  // 按日期篩選
+  // 按日期篩選（標準化日期格式進行比對）
   if (filters.value.startDate) {
-    result = result.filter((r) => r.日期 >= filters.value.startDate);
+    result = result.filter((r) => {
+      const recordDate = r.日期 instanceof Date 
+        ? r.日期.toISOString().split('T')[0]
+        : String(r.日期).split('T')[0];
+      return recordDate >= filters.value.startDate;
+    });
   }
 
   if (filters.value.endDate) {
-    result = result.filter((r) => r.日期 <= filters.value.endDate);
+    result = result.filter((r) => {
+      const recordDate = r.日期 instanceof Date 
+        ? r.日期.toISOString().split('T')[0]
+        : String(r.日期).split('T')[0];
+      return recordDate <= filters.value.endDate;
+    });
   }
 
   return result;

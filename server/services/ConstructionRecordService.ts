@@ -86,7 +86,7 @@ export class ConstructionRecordService {
         SELECT 
           R.DCRid,
           R.[單位],
-          R.[日期],
+          CONVERT(VARCHAR, R.[日期], 23) as [日期],
           R.[建立時間],
           R.[更新時間],
           D.DetailId,
@@ -453,7 +453,7 @@ export class ConstructionRecordService {
         SELECT 
           R.DCRid,
           R.[單位],
-          R.[日期],
+          CONVERT(VARCHAR, R.[日期], 23) as [日期],
           R.[建立時間],
           R.[更新時間],
           D.DetailId,
