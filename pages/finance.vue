@@ -1208,42 +1208,93 @@ const processJimFile = async () => {
       body: formData,
     });
 
-    // 處理檔案下載
-    const blob = new Blob([response], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
+    // 檢查回應格式 (預覽模式會回傳 JSON)
+    if (response && typeof response === 'object' && response.isPreview) {
+      // 預覽模式的回應
+      const previewData = response.data;
 
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
+      // 顯示預覽結果
+      const message = `
+📊 Excel 檔案預覽完成 (未寫入資料庫)
 
-    // 從回應標頭取得檔案名稱，如果沒有則使用預設名稱
-    const contentDisposition = response.headers?.get('content-disposition');
-    let fileName = '處理後的檔案.xlsx';
+📁 檔案資訊:
+  • 檔名: ${previewData.fileName}
+  • 檔案大小: ${formatFileSize(previewData.fileSize)}
 
-    if (contentDisposition) {
-      const fileNameMatch = contentDisposition.match(
-        /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
-      );
-      if (fileNameMatch && fileNameMatch[1]) {
-        fileName = fileNameMatch[1].replace(/['"]/g, '');
+📈 Excel 統計:
+  • 總行數: ${previewData.excelStats.totalRows}
+  • 有效行數: ${previewData.excelStats.validRows}
+  • 跳過行數: ${previewData.excelStats.skippedRows}
+
+💾 資料庫預覽:
+  • 將會插入: ${previewData.previewStats.wouldInsertCount} 筆
+  • 將會跳過: ${previewData.previewStats.wouldSkipCount} 筆 (重複資料)
+  • 重複鍵數量: ${previewData.previewStats.duplicateCount} 個
+
+✅ 所有驗證通過！檔案處理完成，正在下載...
+      `.trim();
+
+      info(message, 10000);
+      console.log('預覽結果詳細資料:', previewData);
+
+      // 如果有範例資料，也印出來
+      if (previewData.sampleData && previewData.sampleData.length > 0) {
+        console.log('前 5 筆資料預覽:', previewData.sampleData);
       }
+
+      // 生成並下載處理後的 Excel 檔案
+      if (previewData.processedRows && previewData.processedRows.length > 0) {
+        await downloadProcessedExcel(
+          previewData.processedRows,
+          previewData.fileName
+        );
+        success('✅ 預覽完成！處理後的 Excel 已下載');
+      } else {
+        success('✅ 預覽完成！詳細資訊請查看通知訊息');
+      }
+
+      clearJimFile();
+      showJimTest.value = false;
+    } else {
+      // 如果不是預覽模式的回應，當作錯誤處理
+      error('回應格式錯誤');
     }
-
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-
-    success('檔案處理完成並已下載！');
-    clearJimFile();
-    showJimTest.value = false;
-  } catch (error) {
-    console.error('處理失敗:', error);
+  } catch (err) {
+    console.error('處理失敗:', err);
     error('處理失敗，請稍後再試');
   } finally {
     isJimProcessing.value = false;
+  }
+};
+
+/**
+ * 下載處理後的 Excel 檔案
+ */
+const downloadProcessedExcel = async (processedRows, originalFileName) => {
+  try {
+    // 動態匯入 xlsx 套件
+    const XLSX = await import('xlsx');
+
+    // 建立工作表
+    const worksheet = XLSX.utils.json_to_sheet(processedRows);
+
+    // 建立工作簿
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '處理後資料');
+
+    // 生成檔案名稱
+    const fileName = originalFileName.replace(
+      /\.(xlsx?|csv)$/i,
+      '_processed.xlsx'
+    );
+
+    // 下載檔案
+    XLSX.writeFile(workbook, fileName);
+
+    console.log('Excel 檔案已生成並下載:', fileName);
+  } catch (error) {
+    console.error('生成 Excel 檔案失敗:', error);
+    error('生成 Excel 檔案失敗');
   }
 };
 </script>

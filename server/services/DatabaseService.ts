@@ -121,6 +121,87 @@ export class DatabaseService {
   }
 
   /**
+   * [新增] 預覽批次插入 - 檢查資料但不實際寫入資料庫
+   * 用於「jim測試用」功能
+   */
+  static async previewBatchInsert(
+    data: ExcelRow[],
+    tableName: string
+  ): Promise<{
+    wouldInsertCount: number;
+    wouldSkipCount: number;
+    duplicateKeys: string[];
+  }> {
+    const pool = await getConnectionPool();
+    const transaction = new sql.Transaction(pool);
+
+    try {
+      await transaction.begin();
+
+      dbLogger.info('開始預覽模式：檢查資料但不寫入', {
+        totalRows: data.length,
+        tableName,
+      });
+
+      // 使用與正常插入相同的邏輯檢查已存在的資料
+      const existingKeys = await this.batchCheckExistingData(
+        transaction,
+        data,
+        tableName
+      );
+
+      // 計算哪些資料會被插入、哪些會被跳過
+      const validRows: ExcelRow[] = [];
+      const skippedRows: ExcelRow[] = [];
+
+      data.forEach((row) => {
+        // 驗證表單編號
+        if (!row['表單編號']) {
+          skippedRows.push(row);
+          return;
+        }
+
+        // 建立複合鍵
+        const compositeKey = this.buildExpendFormCompositeKey(row);
+        if (!compositeKey) {
+          skippedRows.push(row);
+          return;
+        }
+
+        // 檢查是否已存在
+        if (existingKeys.has(compositeKey)) {
+          skippedRows.push(row);
+        } else {
+          validRows.push(row);
+        }
+      });
+
+      const wouldInsertCount = validRows.length;
+      const wouldSkipCount = skippedRows.length;
+
+      // 回滾交易 - 不實際寫入資料庫
+      await transaction.rollback();
+
+      dbLogger.info('預覽模式完成 (未寫入資料庫)', {
+        totalRows: data.length,
+        wouldInsert: wouldInsertCount,
+        wouldSkip: wouldSkipCount,
+        duplicateKeys: existingKeys.size,
+      });
+
+      return {
+        wouldInsertCount,
+        wouldSkipCount,
+        duplicateKeys: Array.from(existingKeys),
+      };
+    } catch (error) {
+      dbLogger.error('預覽模式失敗', error);
+      await transaction.rollback();
+      throw error;
+    }
+  }
+
+  /**
    * [重構] 批次檢查已存在的資料 - 使用標準化的複合鍵
    */
   private static async batchCheckExistingData(
