@@ -240,7 +240,7 @@ const showAddRecordModal = ref(false);
 
 // 施工項目配置（從資料庫動態載入）
 const constructionItems = ref([]);
-const availableUnits = ['工務所', '二標', '四標'];
+const availableUnits = ['工務所', '一標', '二標', '四標', '五標'];
 
 // 項目名稱轉欄位名稱的對應（向後兼容）
 const getFieldNameFromItemName = (itemName) => {

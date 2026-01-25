@@ -104,7 +104,7 @@ export const CONSTRUCTION_ITEMS: ConstructionItem[] = [
 ];
 
 // 單位列表
-export const CONSTRUCTION_UNITS = ['工務所', '二標', '四標'] as const;
+export const CONSTRUCTION_UNITS = ['工務所', '一標', '二標', '四標', '五標'] as const;
 
 // 用於快速查找
 export const CONSTRUCTION_ITEMS_MAP = CONSTRUCTION_ITEMS.reduce(

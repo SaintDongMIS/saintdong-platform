@@ -99,16 +99,25 @@ const emit = defineEmits(['update', 'delete']);
 const validateInput = (event) => {
   // 即時驗證：防止輸入非數字字元
   const value = event.target.value;
+  const cursorPosition = event.target.selectionStart;
   
-  // 移除非數字字元（保留小數點）
-  const cleaned = value.replace(/[^\d.]/g, '');
+  // 移除非數字字元（保留小數點和負號）
+  const cleaned = value.replace(/[^\d.-]/g, '');
   
   // 確保只有一個小數點
   const parts = cleaned.split('.');
+  let finalValue = cleaned;
+  
   if (parts.length > 2) {
-    event.target.value = parts[0] + '.' + parts.slice(1).join('');
-  } else {
-    event.target.value = cleaned;
+    finalValue = parts[0] + '.' + parts.slice(1).join('');
+  }
+  
+  // 只在值真的改變時才更新（避免游標跳動）
+  if (finalValue !== value) {
+    event.target.value = finalValue;
+    // 恢復游標位置
+    const newPosition = cursorPosition - (value.length - finalValue.length);
+    event.target.setSelectionRange(newPosition, newPosition);
   }
 };
 

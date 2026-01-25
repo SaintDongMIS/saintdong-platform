@@ -8,7 +8,7 @@ export async function up(knex: Knex): Promise<void> {
     table.increments('DCRid').primary();
 
     // 基本資訊
-    table.string('單位', 50).notNullable().comment('工務所/二標/四標');
+    table.string('單位', 50).notNullable().comment('工務所/一標/二標/四標/五標');
     table.date('日期').notNullable().comment('施工日期');
 
     // 各項目數量（16個項目）
