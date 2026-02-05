@@ -144,6 +144,17 @@ export class UploadProcessor {
         }
       }
     }
+
+    // 檢查無未來日期：每筆 日期 必須 ≤ 今天，否則整批拒絕
+    const today = new Date().toISOString().split('T')[0]!;
+    for (const row of parsedData.rows) {
+      const dateStr = row['日期'];
+      if (dateStr && typeof dateStr === 'string' && dateStr > today) {
+        throw new Error(
+          `檔案內含未來日期（${dateStr}），請修正後再上傳。`
+        );
+      }
+    }
   }
 
   /**

@@ -346,11 +346,11 @@ export class RoadConstructionExcelService {
 
         const date = this.parseDateString(key);
         if (!date) {
-          excelLogger.warn('偵測到無效的日期欄位，已忽略', {
-            column: originalKey,
-            value,
-          });
-          continue;
+          const message =
+            originalKey && String(originalKey).trim()
+              ? `欄位「${originalKey}」無法辨識為日期，但該欄含有數量，請補上對應日期後再上傳。`
+              : '有欄位缺少日期標題但含有數量，請補上對應日期後再上傳。';
+          throw new Error(message);
         }
 
         const dateString = date.toISOString().split('T')[0];
