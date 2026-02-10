@@ -216,8 +216,7 @@ export class UploadProcessor {
       // 財務部：使用原有方法（保持不變）
       dbResult = await DatabaseService.batchInsertData(
         parsedData.rows,
-        config.tableName,
-        '表單編號'
+        config.tableName
       );
     }
 

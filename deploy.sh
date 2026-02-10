@@ -26,6 +26,14 @@ if [ ! -f .env ]; then
     echo "⚠️  警告: .env 檔案不存在，容器可能無法正常啟動"
 fi
 
+# 執行資料庫 migration（新表／欄位由 knex 管理，表已存在則跳過）
+echo "📋 執行資料庫 Migration..."
+if /usr/local/bin/docker run --rm --env-file .env saintdong-platform:latest npx knex migrate:latest; then
+    echo "✅ Migration 完成"
+else
+    echo "⚠️  Migration 執行有誤，請檢查 DB 連線與 .env；可稍後手動執行: docker run --rm --env-file .env saintdong-platform:latest npx knex migrate:latest"
+fi
+
 # 啟動新的 Docker 容器
 echo "🚀 啟動新的 Docker 容器..."
 /usr/local/bin/docker run -d \

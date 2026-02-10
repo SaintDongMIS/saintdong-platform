@@ -93,7 +93,12 @@ async function insertToDatabase(excelData: any): Promise<any> {
 
   const dbResult = await DatabaseService.batchInsertData(
     excelData.rows,
-    UploadConfig.TABLE_NAME
+    UploadConfig.TABLE_NAME,
+    {
+      trackChanges: true,
+      trackedFields: ['付款狀態', '實際付款日期'],
+      changedBy: 'FINANCE_UPLOAD',
+    }
   );
 
   if (!dbResult.success) {

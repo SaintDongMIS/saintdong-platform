@@ -2,7 +2,9 @@ import sql from 'mssql';
 import { getConnectionPool } from '../config/database';
 import type { ExcelRow } from './ExcelService';
 import { dbLogger } from './LoggerService';
+import { safeStringify } from '../utils/safeStringify';
 import { CompositeKeyService } from './CompositeKeyService';
+import { ExpendFormChangeTrackingService } from './ExpendFormChangeTrackingService';
 
 export interface DatabaseResult {
   success: boolean;
@@ -53,17 +55,31 @@ export class DatabaseService {
 
   /**
    * [重構] 批次插入費用報銷單資料
+   * @param options.trackChanges 為 true 時，委派 ExpendFormChangeTrackingService 做 UPSERT + ChangeLog
    */
   static async batchInsertData(
     data: ExcelRow[],
-    tableName: string
+    tableName: string,
+    options?: {
+      trackChanges?: boolean;
+      trackedFields?: string[];
+      changedBy?: string;
+    }
   ): Promise<DatabaseResult> {
+    if (options?.trackChanges) {
+      return ExpendFormChangeTrackingService.executeBatchUpsertWithTracking(
+        data,
+        tableName,
+        options.trackedFields,
+        options.changedBy
+      );
+    }
     return this.executeBatchInsert(
       data,
       tableName,
       DatabaseService.buildExpendFormCompositeKey.bind(DatabaseService),
       (row) =>
-        !row['表單編號'] ? `資料行缺少表單編號: ${JSON.stringify(row)}` : null,
+        !row['表單編號'] ? `資料行缺少表單編號: ${safeStringify(row)}` : null,
       DatabaseService.batchCheckExistingData.bind(DatabaseService)
     );
   }
@@ -305,7 +321,7 @@ export class DatabaseService {
             continue;
           }
 
-          const errorMsg = `插入資料行失敗: ${JSON.stringify(row)} - ${
+          const errorMsg = `插入資料行失敗: ${safeStringify(row)} - ${
             rowError instanceof Error ? rowError.message : '未知錯誤'
           }`;
           result.errors.push(errorMsg);
@@ -424,9 +440,9 @@ export class DatabaseService {
   }
 
   /**
-   * 在交易中插入單筆資料
+   * 在交易中插入單筆資料（public 供 ExpendFormChangeTrackingService 使用）
    */
-  private static async insertRowInTransaction(
+  static async insertRowInTransaction(
     transaction: any,
     row: ExcelRow,
     tableName: string
@@ -472,10 +488,10 @@ export class DatabaseService {
   }
 
   /**
-   * 轉換值為適合插入資料庫的格式
+   * 轉換值為適合插入資料庫的格式（public 供 ExpendFormChangeTrackingService 使用）
    * @returns { sqlType, convertedValue }
    */
-  private static convertValueForInsert(
+  static convertValueForInsert(
     columnName: string,
     value: any
   ): { sqlType: any; convertedValue: any } {
