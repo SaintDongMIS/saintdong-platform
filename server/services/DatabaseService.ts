@@ -2,6 +2,7 @@ import sql from 'mssql';
 import { getConnectionPool } from '../config/database';
 import type { ExcelRow } from './ExcelService';
 import { dbLogger } from './LoggerService';
+import { CompositeKeyService } from './CompositeKeyService';
 
 export interface DatabaseResult {
   success: boolean;
@@ -43,64 +44,11 @@ export class DatabaseService {
   }
 
   /**
-   * [重構] 標準化欄位值以進行比較或插入
-   * @param value 任意值
-   * @param type 'string' | 'date' | 'decimal'
-   * @returns 標準化後的值
-   */
-  private static normalizeValue(
-    value: any,
-    type: 'string' | 'date' | 'decimal'
-  ): string {
-    if (value === null || value === undefined || value === '') {
-      if (type === 'decimal') return '0.00';
-      return '';
-    }
-
-    switch (type) {
-      case 'string':
-        return value.toString().trim();
-
-      case 'date':
-        if (value instanceof Date) {
-          // 加上 '|| ''' 確保類型安全，滿足 TypeScript 編譯器
-          return value.toISOString().split('T')[0] || '';
-        }
-        const dateStr = value.toString();
-        const dateMatch = dateStr.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})/);
-        return dateMatch
-          ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
-          : dateStr.trim();
-
-      case 'decimal':
-        return parseFloat(String(value)).toFixed(2);
-
-      default:
-        return value.toString().trim();
-    }
-  }
-
-  /**
    * [重構] 為費用報銷單建立複合鍵
-   * 複合鍵：表單編號-發票號碼-交易日期-項目原幣金額-[費用項目]
-   * - 費用項目為可選，為空時不加入鍵中
+   * 委託給 CompositeKeyService（鍵由 EXPEND_FORM_KEY_SPEC 定義，含分攤參與部門）
    */
   private static buildExpendFormCompositeKey(row: ExcelRow): string | null {
-    const formNumber = this.normalizeValue(row['表單編號'], 'string');
-    if (!formNumber) return null;
-
-    const invoiceNumber = this.normalizeValue(row['發票號碼'], 'string');
-    const transactionDate = this.normalizeValue(row['交易日期'], 'date');
-    const itemAmount = this.normalizeValue(row['項目原幣金額'], 'decimal');
-    const expenseItem = this.normalizeValue(row['費用項目'], 'string');
-
-    // 核心邏輯：如果費用項目存在，則將其包含在鍵中
-    const keyParts = [formNumber, invoiceNumber, transactionDate, itemAmount];
-    if (expenseItem) {
-      keyParts.push(expenseItem);
-    }
-
-    return keyParts.join('-');
+    return CompositeKeyService.generateExpendFormKey(row);
   }
 
   /**
@@ -202,7 +150,8 @@ export class DatabaseService {
   }
 
   /**
-   * [重構] 批次檢查已存在的資料 - 使用標準化的複合鍵
+   * [重構] 批次檢查已存在的資料
+   * 委託給 CompositeKeyService 統一處理，支援分批查詢避免 SQL Server 參數限制
    */
   private static async batchCheckExistingData(
     transaction: any,
@@ -211,98 +160,28 @@ export class DatabaseService {
   ): Promise<Set<string>> {
     if (data.length === 0) return new Set();
 
-    // 1. 從上傳資料中生成所有可能的複合鍵
-    const compositeKeysFromUpload = new Set<string>();
-    data.forEach((row) => {
-      // 為了處理「費用項目從無到有」的更新情況，我們為每一行產生兩種可能的鍵：
-      // a. 包含費用項目的精確鍵
-      // b. 不含費用項目的寬鬆鍵
-      const formNumber = this.normalizeValue(row['表單編號'], 'string');
-      if (!formNumber) return;
+    const compositeKeys = CompositeKeyService.batchGenerateKeys(
+      data,
+      'ExpendForm'
+    );
+    if (compositeKeys.length === 0) return new Set();
 
-      const invoiceNumber = this.normalizeValue(row['發票號碼'], 'string');
-      const transactionDate = this.normalizeValue(row['交易日期'], 'date');
-      const itemAmount = this.normalizeValue(row['項目原幣金額'], 'decimal');
-      const expenseItem = this.normalizeValue(row['費用項目'], 'string');
-
-      // 產生寬鬆鍵 (一定有)
-      compositeKeysFromUpload.add(
-        [formNumber, invoiceNumber, transactionDate, itemAmount].join('-')
-      );
-      // 如果有費用項目，額外產生精確鍵
-      if (expenseItem) {
-        compositeKeysFromUpload.add(
-          [
-            formNumber,
-            invoiceNumber,
-            transactionDate,
-            itemAmount,
-            expenseItem,
-          ].join('-')
-        );
-      }
-    });
-
-    const keysToQuery = Array.from(compositeKeysFromUpload).filter(Boolean);
-    if (keysToQuery.length === 0) return new Set();
-
-    // 2. 在資料庫中一次性查詢所有匹配的鍵
-    const request = new sql.Request(transaction);
-    const placeholders = keysToQuery.map((_, i) => `@key${i}`).join(', ');
-    keysToQuery.forEach((key, i) => {
-      request.input(`key${i}`, sql.NVarChar, key);
-    });
-
-    // SQL 查詢邏輯：
-    // - 同時生成兩種複合鍵 (有/無費用項目)，並與傳入的鍵比對
-    // - 這樣無論資料庫中的費用項目是 NULL 還是有值，都能被正確匹配
-    const query = `
-      SELECT DISTINCT composite_key FROM (
-        -- 情況1: 費用項目為 NULL 或空字串
-        SELECT 
-          [表單編號] + '-' + 
-          ISNULL(NULLIF([發票號碼], ''), '') + '-' + 
-          CONVERT(VARCHAR(10), [交易日期], 120) + '-' + 
-          FORMAT([項目原幣金額], 'F2') as composite_key
-        FROM ${tableName}
-        WHERE ISNULL([費用項目], '') = ''
-
-        UNION ALL
-
-        -- 情況2: 費用項目有值
-        SELECT 
-          [表單編號] + '-' + 
-          ISNULL(NULLIF([發票號碼], ''), '') + '-' + 
-          CONVERT(VARCHAR(10), [交易日期], 120) + '-' + 
-          FORMAT([項目原幣金額], 'F2') + '-' +
-          [費用項目] as composite_key
-        FROM ${tableName}
-        WHERE ISNULL([費用項目], '') <> ''
-      ) AS existing_keys
-      WHERE composite_key IN (${placeholders})
-    `;
-
-    const result = await request.query(query);
-    return new Set(result.recordset.map((row) => row.composite_key));
+    return await CompositeKeyService.batchQueryExistingKeys(
+      transaction,
+      compositeKeys,
+      tableName,
+      'ExpendForm'
+    );
   }
 
   /**
-   * [新增] 為道路施工部表單建立複合鍵
-   * 複合鍵：派工單號-廠商名稱-項目名稱-日期
+   * [重構] 為道路施工部表單建立複合鍵
+   * 委託給 CompositeKeyService 統一處理，複合鍵格式：派工單號~~~廠商名稱~~~項目名稱~~~日期
    */
   private static buildRoadConstructionCompositeKey(
     row: ExcelRow
   ): string | null {
-    const workOrderNumber = this.normalizeValue(row['派工單號'], 'string');
-    const vendorName = this.normalizeValue(row['廠商名稱'], 'string');
-    const itemName = this.normalizeValue(row['項目名稱'], 'string');
-    const date = this.normalizeValue(row['日期'], 'date');
-
-    if (!workOrderNumber || !itemName || !date) {
-      return null;
-    }
-
-    return [workOrderNumber, vendorName, itemName, date].join('-');
+    return CompositeKeyService.generateRoadConstructionKey(row);
   }
 
   /**
@@ -464,7 +343,7 @@ export class DatabaseService {
 
   /**
    * [重構] 道路施工部：批次檢查已存在的資料
-   * - 使用標準化的複合鍵生成邏輯
+   * 委託給 CompositeKeyService 統一處理
    */
   private static async batchCheckExistingDataRoadConstruction(
     transaction: any,
@@ -473,29 +352,18 @@ export class DatabaseService {
   ): Promise<Set<string>> {
     if (data.length === 0) return new Set();
 
-    const compositeKeys = data
-      .map(
-        DatabaseService.buildRoadConstructionCompositeKey.bind(DatabaseService)
-      )
-      .filter((key): key is string => !!key);
-
+    const compositeKeys = CompositeKeyService.batchGenerateKeys(
+      data,
+      'RoadConstruction'
+    );
     if (compositeKeys.length === 0) return new Set();
 
-    const request = new sql.Request(transaction);
-    const query = `
-      SELECT DISTINCT 
-        [派工單號] + '-' + ISNULL([廠商名稱], '') + '-' + [項目名稱] + '-' + CONVERT(VARCHAR(10), [日期], 120) as composite_key
-      FROM ${tableName}
-      WHERE [派工單號] + '-' + ISNULL([廠商名稱], '') + '-' + [項目名稱] + '-' + CONVERT(VARCHAR(10), [日期], 120)
-            IN (${compositeKeys.map((_, i) => `@key${i}`).join(', ')})
-    `;
-
-    compositeKeys.forEach((key, i) => {
-      request.input(`key${i}`, sql.NVarChar, key);
-    });
-
-    const result = await request.query(query);
-    return new Set(result.recordset.map((row) => row.composite_key));
+    return await CompositeKeyService.batchQueryExistingKeys(
+      transaction,
+      compositeKeys,
+      tableName,
+      'RoadConstruction'
+    );
   }
 
   /**
