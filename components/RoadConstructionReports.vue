@@ -106,6 +106,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useDateHelper } from '~/composables/useDateHelper';
 
 const reports = ref([]);
 const currentPage = ref(1);
@@ -165,10 +166,12 @@ const changePage = (page) => {
   }
 };
 
+const { toLocalDate } = useDateHelper();
+
 const formatDate = (dateString) => {
   if (!dateString) return '';
   const date = new Date(dateString);
-  return date.toISOString().split('T')[0];
+  return toLocalDate(date);
 };
 
 const formatNumber = (num) => {

@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { DataEnrichmentService } from './DataEnrichmentService';
 import { PaymentInheritanceService } from './PaymentInheritanceService';
 import { excelLogger } from './LoggerService';
+import { DateHelper } from '~/server/utils/dateHelper';
 
 export interface ExcelRow {
   [key: string]: any;
@@ -36,7 +37,7 @@ export class ExcelService {
       excelLogger.info('開始處理資料行');
       const { processedRows, skippedRows } = await this.processDataRows(
         jsonData,
-        headers
+        headers,
       );
 
       excelLogger.info('Excel 解析完成', {
@@ -52,7 +53,7 @@ export class ExcelService {
       // 為費用報銷單繼承付款資訊
       const enrichedRows = PaymentInheritanceService.enrichPaymentInfo(
         processedRows,
-        prepaymentIndex
+        prepaymentIndex,
       );
 
       return {
@@ -67,7 +68,7 @@ export class ExcelService {
       throw new Error(
         `Excel 檔案解析失敗: ${
           error instanceof Error ? error.message : '未知錯誤'
-        }`
+        }`,
       );
     }
   }
@@ -84,7 +85,7 @@ export class ExcelService {
    */
   private static async parseWorkbook(
     filePath: string,
-    fileBuffer: Buffer
+    fileBuffer: Buffer,
   ): Promise<XLSX.WorkBook> {
     const fileExtension = filePath
       .toLowerCase()
@@ -102,7 +103,7 @@ export class ExcelService {
    * 取得第一個工作表
    */
   private static async getFirstWorksheet(
-    workbook: XLSX.WorkBook
+    workbook: XLSX.WorkBook,
   ): Promise<XLSX.WorkSheet> {
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) {
@@ -119,7 +120,7 @@ export class ExcelService {
    * 轉換為 JSON 格式
    */
   private static async convertToJson(
-    worksheet: XLSX.WorkSheet
+    worksheet: XLSX.WorkSheet,
   ): Promise<any[][]> {
     const jsonData = XLSX.utils.sheet_to_json(worksheet, {
       header: 1,
@@ -152,7 +153,7 @@ export class ExcelService {
    */
   private static async processDataRows(
     jsonData: any[][],
-    headers: string[]
+    headers: string[],
   ): Promise<{ processedRows: ExcelRow[]; skippedRows: number }> {
     const dataRows = jsonData.slice(1);
 
@@ -192,7 +193,7 @@ export class ExcelService {
       lastMasterRow: ExcelRow | null;
     },
     row: any[],
-    headers: string[]
+    headers: string[],
   ): typeof state {
     const processedRow = this.processRow(row, headers);
 
@@ -223,11 +224,13 @@ export class ExcelService {
       lastMasterRow: ExcelRow | null;
     },
     row: any[],
-    headers: string[]
+    headers: string[],
   ): typeof state {
     // 驗證：沒有主紀錄
     if (!state.lastMasterRow) {
-      excelLogger.warn('發現沒有主紀錄的從屬資料行，已跳過', { row });
+      excelLogger.debug(
+        '發現沒有主紀錄的從屬資料行，已跳過（主紀錄可能因狀態過濾被跳過）',
+      );
       return { ...state, skippedRows: state.skippedRows + 1 };
     }
 
@@ -243,7 +246,7 @@ export class ExcelService {
     const detailRow = this.mergeDetailWithMaster(
       row,
       headers,
-      state.lastMasterRow
+      state.lastMasterRow,
     );
     // this.handlePrepaymentForm(detailRow);
     this.sanitizeInheritedData(detailRow, state.lastMasterRow);
@@ -256,12 +259,22 @@ export class ExcelService {
   }
 
   /**
+   * 從屬紀錄處理規則總覽（Commeet 主從結構）
+   * ----------------------------------------
+   * 第一階段 mergeDetailWithMaster：合併 Excel 從屬行與主紀錄
+   *   - 有值的欄位才覆寫；以下四欄「空也覆寫」不繼承主紀錄：費用項目、會計科目、會計科目代號、會計科目原幣金額
+   * 第二階段 sanitizeInheritedData：依類型清理不該出現的金額
+   *   - 稅額行（會計科目=進項稅額）：清空項目金額、發票金額、分攤參與部門等，保留稅額與會計科目原幣金額
+   *   - 分攤行（分攤部門與主紀錄不同）：清空項目金額、匯率、稅額、發票金額等，保留分攤金額與會計科目原幣金額
+   *   - 會計科目為空時，會計科目原幣金額一併清空
+   */
+  /**
    * 合併從屬紀錄到主紀錄
    */
   private static mergeDetailWithMaster(
     row: any[],
     headers: string[],
-    masterRow: ExcelRow
+    masterRow: ExcelRow,
   ): ExcelRow {
     const detailRow = { ...masterRow };
 
@@ -306,7 +319,7 @@ export class ExcelService {
         cell === null ||
         cell === undefined ||
         cell === '' ||
-        (typeof cell === 'string' && cell.trim() === '')
+        (typeof cell === 'string' && cell.trim() === ''),
     );
   }
 
@@ -315,7 +328,7 @@ export class ExcelService {
    */
   private static isFormNumberEmpty(row: any[], headers: string[]): boolean {
     const formNumberIndex = headers.findIndex(
-      (header) => header === '表單編號'
+      (header) => header === '表單編號',
     );
     if (formNumberIndex < 0) return false;
 
@@ -420,8 +433,8 @@ export class ExcelService {
    * 清理欄位名稱，移除特殊字元
    */
   private static cleanHeaderName(header: string): string {
-    // 保留原始欄位名稱，包括星號，僅去除前後空白
-    return header.trim();
+    // 移除前後空白和開頭的星號（COMMEET Excel 欄位可能帶有 * 前綴）
+    return header.trim().replace(/^\*/, '');
   }
 
   /**
@@ -474,7 +487,7 @@ export class ExcelService {
     if (/^\d+$/.test(value)) {
       const excelDate = parseInt(value);
       const date = new Date((excelDate - 25569) * 86400 * 1000);
-      return date.toISOString().split('T')[0] || ''; // YYYY-MM-DD 格式
+      return DateHelper.toLocalDate(date); // YYYY-MM-DD 格式，使用本地時區
     } else {
       // 將 2025/09/18 格式轉換為 2025-09-18
       return value.replace(/\//g, '-');
@@ -486,7 +499,7 @@ export class ExcelService {
    */
   static validateExcelData(
     data: ProcessedExcelData,
-    requiredFields: string[]
+    requiredFields: string[],
   ): void {
     this.validateHasRows(data);
     this.validateRequiredHeaders(data.headers, requiredFields);
@@ -507,10 +520,10 @@ export class ExcelService {
    */
   private static validateRequiredHeaders(
     headers: string[],
-    requiredFields: string[]
+    requiredFields: string[],
   ): void {
     const missingFields = requiredFields.filter(
-      (field) => !headers.includes(field)
+      (field) => !headers.includes(field),
     );
 
     if (missingFields.length > 0) {
@@ -523,7 +536,7 @@ export class ExcelService {
    */
   private static validateFirstRowData(
     rows: ExcelRow[],
-    requiredFields: string[]
+    requiredFields: string[],
   ): void {
     const firstRow = rows[0];
     if (!firstRow) {
@@ -531,7 +544,7 @@ export class ExcelService {
     }
 
     const emptyField = requiredFields.find((field) =>
-      this.isValueEmpty(firstRow[field])
+      this.isValueEmpty(firstRow[field]),
     );
 
     if (emptyField) {
@@ -551,7 +564,7 @@ export class ExcelService {
         row['付款銀行代碼']
       ) {
         const bankName = DataEnrichmentService.getBankNameByCode(
-          row['付款銀行代碼']
+          row['付款銀行代碼'],
         );
         if (bankName) {
           row['付款銀行名稱'] = bankName;
@@ -573,34 +586,180 @@ export class ExcelService {
   }
 
   /**
+   * 從 Buffer 解析 Excel（用於 COMMEET API 下載的資料）
+   *
+   * 複用財務部的主從結構處理邏輯：
+   * - 主紀錄：有表單編號的行
+   * - 從屬紀錄：沒有表單編號的行，會繼承上一個主紀錄的資訊
+   * - 過濾非「已核准」狀態的表單
+   *
+   * @param buffer Excel 檔案的 Buffer
+   */
+  static async parseExcelFromBuffer(
+    buffer: Buffer,
+  ): Promise<ProcessedExcelData> {
+    try {
+      excelLogger.info('開始從 Buffer 解析 Excel');
+
+      // 直接從 Buffer 解析工作簿
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const worksheet = await this.getFirstWorksheet(workbook);
+
+      excelLogger.info('轉換為 JSON 格式');
+      const jsonData = await this.convertToJson(worksheet);
+      const headers = await this.extractHeaders(jsonData);
+
+      excelLogger.info('開始處理資料行');
+
+      // 收集所有表單狀態值（用於除錯）
+      const formStatusIndex = headers.indexOf('表單狀態');
+      const formNumberIndex = headers.indexOf('表單編號');
+      const statusMap = new Map<string, number>();
+
+      jsonData.slice(1).forEach((row) => {
+        // 只統計有表單編號的主紀錄
+        if (formNumberIndex >= 0 && row[formNumberIndex]) {
+          const status = row[formStatusIndex] || '(空)';
+          statusMap.set(status, (statusMap.get(status) || 0) + 1);
+        }
+      });
+
+      excelLogger.info('Excel 中的表單狀態分布', {
+        statusDistribution: Object.fromEntries(statusMap),
+      });
+
+      // 複用財務部的 processDataRows（已包含主從結構、狀態過濾邏輯）
+      const { processedRows, skippedRows } = await this.processDataRows(
+        jsonData,
+        headers,
+      );
+
+      // 清理金額欄位中的幣別文字（如 "USD 437.96" → "437.96"）
+      const sanitizedRows = processedRows.map((row) =>
+        this.sanitizeAmountFields(row),
+      );
+
+      // 清理 headers（移除星號等）
+      const cleanedHeaders = headers.map((h) => this.cleanHeaderName(h));
+
+      excelLogger.info('Excel Buffer 解析完成', {
+        totalRows: jsonData.length - 1,
+        validRows: sanitizedRows.length,
+        skippedRows: skippedRows,
+      });
+
+      return {
+        headers: cleanedHeaders,
+        rows: sanitizedRows,
+        totalRows: jsonData.length - 1,
+        validRows: sanitizedRows.length,
+        skippedRows,
+      };
+    } catch (error) {
+      excelLogger.error('Excel Buffer 解析錯誤', error);
+      throw new Error(
+        `Excel Buffer 解析失敗: ${
+          error instanceof Error ? error.message : '未知錯誤'
+        }`,
+      );
+    }
+  }
+
+  /**
+   * 清理金額欄位中的幣別文字
+   * 例如："USD 437.96" → "437.96"
+   *       "TWD 1,234.56" → "1234.56"
+   */
+  private static sanitizeAmountFields(row: ExcelRow): ExcelRow {
+    const amountFields = ['分攤金額']; // 可擴展其他需要清理的金額欄位
+
+    const sanitizedRow = { ...row };
+
+    for (const field of amountFields) {
+      const value = sanitizedRow[field];
+      if (value && typeof value === 'string') {
+        // 移除幣別代碼和空格，只保留數字和小數點
+        const cleanedValue = this.extractNumericValue(value);
+        if (cleanedValue !== null) {
+          sanitizedRow[field] = cleanedValue;
+        }
+      }
+    }
+
+    return sanitizedRow;
+  }
+
+  /**
+   * 從包含幣別的字串中提取數值
+   * "USD 437.96" → "437.96"
+   * "TWD 1,234.56" → "1234.56"
+   * "-500.00" → "-500.00"
+   * "" → ""
+   */
+  private static extractNumericValue(value: string): string | null {
+    if (!value || value.trim() === '') {
+      return '';
+    }
+
+    // 移除幣別代碼（3個大寫字母）和空格
+    // 支援格式：USD 437.96, TWD 1,234.56, -500.00
+    const cleaned = value
+      .replace(/^[A-Z]{3}\s*/i, '') // 移除開頭的幣別代碼
+      .replace(/,/g, '') // 移除千分位逗號
+      .trim();
+
+    // 驗證是否為有效數字
+    if (cleaned === '' || isNaN(parseFloat(cleaned))) {
+      return null; // 無法解析，返回 null 表示保持原值
+    }
+
+    return cleaned;
+  }
+
+  /**
    * 根據業務規則清理繼承來的資料，確保從屬紀錄的合理性
+   * 修正規則：針對 Commeet 的「稅額行」和「分攤行」，把不該出現的金額數字清空
+   * 參考：財務 Excel 處理金額修正說明
    */
   private static sanitizeInheritedData(
     detailRow: ExcelRow,
-    masterRow: ExcelRow
+    masterRow: ExcelRow,
   ): void {
-    // 規則一：處理稅額分錄
-    if (detailRow['會計科目'] === '進項稅額') {
-      // 清理不相關的金額欄位
+    // 規則一：處理稅額分錄（會計科目 = 進項稅額），比對前 trim 避免 Excel 空白導致漏判
+    const accountName = String(detailRow['會計科目'] ?? '').trim();
+    if (accountName === '進項稅額') {
+      // 根據修正規則表：稅額行需要清空的欄位
       detailRow['項目原幣金額'] = '0';
       detailRow['項目本幣金額'] = '0';
+      detailRow['匯率'] = '0';
       detailRow['分攤金額'] = '0';
-
-      // 清理不相關的文字欄位，使其更清晰
-      // detailRow['費用項目'] = '進項稅額';
+      detailRow['發票未稅金額'] = '0';
+      detailRow['發票含稅金額'] = '0';
       detailRow['分攤參與部門'] = '';
+
+      // 保留的欄位：稅額、會計科目原幣金額
+      // 注意：會計科目原幣金額應該保留為稅額金額，不是清空
+      // 這個欄位在 mergeDetailWithMaster 中已經處理
+
       return; // 稅額行處理完畢，直接返回
     }
 
-    // 規則二：處理費用分攤分錄 (當分攤部門改變時)
-    const detailDept = detailRow['分攤參與部門'];
-    const masterDept = masterRow['分攤參與部門'];
+    // 規則二：處理費用分攤分錄（當分攤部門改變時），比對前 trim 避免空白導致誤判
+    const detailDept = String(detailRow['分攤參與部門'] ?? '').trim();
+    const masterDept = String(masterRow['分攤參與部門'] ?? '').trim();
 
     if (detailDept && masterDept && detailDept !== masterDept) {
-      // 這是分攤行，清理發票層級的總額資訊
+      // 根據修正規則表：分攤行需要清空的欄位
+      detailRow['項目原幣金額'] = '0';
+      detailRow['項目本幣金額'] = '0';
+      detailRow['匯率'] = '0';
+      detailRow['稅額'] = '0';
       detailRow['發票未稅金額'] = '0';
       detailRow['發票含稅金額'] = '0';
-      // 保留分攤金額 (detailRow['分攤金額'])
+
+      // 保留的欄位：分攤金額、會計科目原幣金額
+      // 分攤金額在 mergeDetailWithMaster 中已經處理
+      // 會計科目原幣金額在 mergeDetailWithMaster 中已經處理
     }
 
     // 規則三：確保會計科目與會計科目原幣金額的一致性

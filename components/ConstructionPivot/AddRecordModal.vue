@@ -91,6 +91,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { useDateHelper } from '~/composables/useDateHelper';
 
 defineProps({
   availableUnits: {
@@ -100,10 +101,11 @@ defineProps({
 });
 
 const emit = defineEmits(['close', 'save']);
+const { today } = useDateHelper();
 
 const formData = ref({
   單位: '',
-  日期: new Date().toISOString().split('T')[0],
+  日期: today(),
 });
 
 const handleSubmit = () => {

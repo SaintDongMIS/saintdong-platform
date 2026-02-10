@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { excelLogger } from './LoggerService';
+import { DateHelper } from '~/server/utils/dateHelper';
 
 /**
  * 日期標題介面
@@ -353,7 +354,7 @@ export class RoadConstructionExcelService {
           throw new Error(message);
         }
 
-        const dateString = date.toISOString().split('T')[0];
+        const dateString = DateHelper.toLocalDate(date);
 
         // 處理重複日期欄位
         let dateHeader = dateHeaderMap.get(dateString!);
@@ -451,8 +452,8 @@ export class RoadConstructionExcelService {
       }
 
       return {
-        start: firstDate.toISOString().split('T')[0]!,
-        end: lastDate.toISOString().split('T')[0]!,
+        start: DateHelper.toLocalDate(firstDate),
+        end: DateHelper.toLocalDate(lastDate),
       };
     } catch (error) {
       excelLogger.warn('提取日期範圍失敗', {

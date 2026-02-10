@@ -222,6 +222,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useToast } from '~/composables/useToast';
+import { useDateHelper } from '~/composables/useDateHelper';
 import * as XLSX from 'xlsx';
 
 // 引入子元件
@@ -231,6 +232,7 @@ import PivotView from './ConstructionPivot/PivotView.vue';
 import AddRecordModal from './ConstructionPivot/AddRecordModal.vue';
 
 const { success, error } = useToast();
+const { toLocalDate, today, firstDayOfMonth } = useDateHelper();
 
 // 狀態
 const currentView = ref('quantity');
@@ -286,7 +288,7 @@ const filteredRecords = computed(() => {
   if (filters.value.startDate) {
     result = result.filter((r) => {
       const recordDate = r.日期 instanceof Date 
-        ? r.日期.toISOString().split('T')[0]
+        ? toLocalDate(r.日期)
         : String(r.日期).split('T')[0];
       return recordDate >= filters.value.startDate;
     });
@@ -295,7 +297,7 @@ const filteredRecords = computed(() => {
   if (filters.value.endDate) {
     result = result.filter((r) => {
       const recordDate = r.日期 instanceof Date 
-        ? r.日期.toISOString().split('T')[0]
+        ? toLocalDate(r.日期)
         : String(r.日期).split('T')[0];
       return recordDate <= filters.value.endDate;
     });
@@ -361,8 +363,8 @@ const handleUpdateRecord = async (record) => {
     // 確保日期格式正確
     if (formattedRecord.日期) {
       if (formattedRecord.日期 instanceof Date) {
-        // 如果是 Date 物件，轉換為 YYYY-MM-DD
-        formattedRecord.日期 = formattedRecord.日期.toISOString().split('T')[0];
+        // 如果是 Date 物件，轉換為 YYYY-MM-DD（本地時區）
+        formattedRecord.日期 = toLocalDate(formattedRecord.日期);
       } else {
         // 如果是字串，確保移除時間部分
         formattedRecord.日期 = String(formattedRecord.日期).split('T')[0];
@@ -497,7 +499,7 @@ const exportToExcel = () => {
     XLSX.utils.book_append_sheet(wb, ws3, '樞紐分析');
 
     // 下載
-    const filename = `施工日報_${new Date().toISOString().split('T')[0]}.xlsx`;
+    const filename = `施工日報_${today()}.xlsx`;
     XLSX.writeFile(wb, filename);
 
     success('Excel 匯出成功');
@@ -541,10 +543,8 @@ const fetchItems = async () => {
 // 生命週期
 onMounted(async () => {
   // 設定預設日期範圍（本月）
-  const today = new Date();
-  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-  filters.value.startDate = firstDay.toISOString().split('T')[0];
-  filters.value.endDate = today.toISOString().split('T')[0];
+  filters.value.startDate = firstDayOfMonth();
+  filters.value.endDate = today();
 
   // 先載入項目清單，再載入記錄
   await fetchItems();
