@@ -81,6 +81,21 @@ export const reimbursementTableSchema = `
 `;
 
 /**
+ * 費用報銷單變更記錄表 Schema（ExpendForm_ChangeLog）
+ * 與 migration 20260210120000_create_expendform_changelog 一致
+ */
+export const expendFormChangeLogSchema = `
+  [LogId] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+  [EFid] INT NOT NULL,
+  [FieldName] NVARCHAR(100) NOT NULL,
+  [OldValue] NVARCHAR(MAX),
+  [NewValue] NVARCHAR(MAX),
+  [ChangedAt] DATETIME NOT NULL DEFAULT GETDATE(),
+  [ChangedBy] NVARCHAR(50) NOT NULL,
+  [ChangeType] NVARCHAR(20)
+`;
+
+/**
  * 道路施工部資料表 Schema
  *
  * 資料來源：對帳工務所 Excel 樞紐表

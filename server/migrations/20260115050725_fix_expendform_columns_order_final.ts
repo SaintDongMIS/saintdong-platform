@@ -196,5 +196,5 @@ export async function up(knex: Knex): Promise<void> {
 }
 
 export async function down(knex: Knex): Promise<void> {
-  console.log('此遷移不支援自動回滾，請手動調整');
+  // 此遷移不支援自動回滾，請手動調整
 }

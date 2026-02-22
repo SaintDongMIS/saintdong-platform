@@ -23,24 +23,24 @@ const config: { [key: string]: Knex.Config } = {
     },
   },
 
-  // production: {
-  //   client: 'mssql',
-  //   connection: {
-  //     host: process.env.DB_SERVER,
-  //     port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 1433,
-  //     user: process.env.DB_USER,
-  //     password: process.env.DB_PASSWORD,
-  //     database: process.env.DB_DATABASE,
-  //   },
-  //   pool: {
-  //     min: 2,
-  //     max: 10,
-  //   },
-  //   migrations: {
-  //     tableName: 'knex_migrations',
-  //     directory: './server/migrations',
-  //   },
-  // },
+  production: {
+    client: 'mssql',
+    connection: {
+      host: process.env.DB_SERVER,
+      port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 1433,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+    },
+    pool: {
+      min: 2,
+      max: 10,
+    },
+    migrations: {
+      tableName: 'knex_migrations',
+      directory: './server/migrations',
+    },
+  },
 };
 
 module.exports = config;

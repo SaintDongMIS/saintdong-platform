@@ -28,12 +28,7 @@ export async function up(knex: Knex): Promise<void> {
   // 檢查是否有資料需要遷移
   const records = await knex('DailyConstructionRecord').select('*');
 
-  if (records.length === 0) {
-    console.log('✓ DailyConstructionRecord 表為空，無需遷移資料');
-    return;
-  }
-
-  console.log(`開始遷移 ${records.length} 筆記錄...`);
+  if (records.length === 0) return;
 
   // 取得所有項目主檔（用於查詢 ItemId 和單價）
   const items = await knex('ConstructionItemMaster')
@@ -67,8 +62,6 @@ export async function up(knex: Knex): Promise<void> {
             UnitPrice: itemInfo.Price, // 儲存當時的單價快照
             Amount: amount,
           });
-        } else {
-          console.warn(`⚠️  找不到項目: ${mapping.itemName}`);
         }
       }
     }
@@ -78,12 +71,8 @@ export async function up(knex: Knex): Promise<void> {
       await knex('ConstructionRecordDetail').insert(details);
     }
   }
-
-  console.log(`✓ 成功遷移 ${records.length} 筆記錄`);
 }
 
 export async function down(knex: Knex): Promise<void> {
-  // 回滾時清空明細表
   await knex('ConstructionRecordDetail').del();
-  console.log('✓ 已清空 ConstructionRecordDetail 表');
 }

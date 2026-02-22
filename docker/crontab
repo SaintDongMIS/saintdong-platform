@@ -1,0 +1,2 @@
+# COMMEET 同步：每天 6:00（台灣時間）
+0 6 * * * echo "=== $(date '+%Y-%m-%dT%H:%M:%S%z') ===" >> /var/log/commeet-sync.log 2>&1 && curl -s -w "\nHTTP_CODE:%{http_code}\n" -X POST http://127.0.0.1:3000/api/commeet/sync -H "Content-Type: application/json" >> /var/log/commeet-sync.log 2>&1

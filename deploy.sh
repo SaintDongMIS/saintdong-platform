@@ -39,6 +39,7 @@ echo "🚀 啟動新的 Docker 容器..."
 /usr/local/bin/docker run -d \
   --name saintdong-platform \
   -p 3000:3000 \
+  --shm-size=2gb \
   --env-file .env \
   --restart unless-stopped \
   saintdong-platform:latest

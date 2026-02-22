@@ -201,8 +201,5 @@ export async function up(knex: Knex): Promise<void> {
 }
 
 export async function down(knex: Knex): Promise<void> {
-  // 回滾邏輯：通常不需要特別實作，因為這是結構調整。
-  // 如果真的要回滾，就是再做一次同樣的步驟，只是把欄位順序改回去。
-  // 這裡為了簡化，暫不實作複雜的回滾。
-  console.log('此遷移不支援自動回滾，請手動調整');
+  // 此遷移不支援自動回滾，請手動調整
 }
