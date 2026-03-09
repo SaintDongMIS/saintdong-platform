@@ -32,6 +32,8 @@ export class ExpendFormChangeTrackingService {
       skippedCount: 0,
       errors: [],
     };
+    /** 記錄第一筆失敗的錯誤，方便在交易 rollback 時一併輸出根因 */
+    let firstRowError: { error: unknown; rowPreview: string } | null = null;
 
     try {
       await transaction.begin();
@@ -118,11 +120,20 @@ export class ExpendFormChangeTrackingService {
             result.insertedCount++;
           }
         } catch (rowError) {
+          const message =
+            rowError instanceof Error ? rowError.message : '未知錯誤';
           result.errors.push(
-            `資料行失敗: ${safeStringify(row)} - ${
-              rowError instanceof Error ? rowError.message : '未知錯誤'
-            }`
+            `資料行失敗: ${safeStringify(row)} - ${message}`
           );
+          if (!firstRowError) {
+            firstRowError = {
+              error: rowError,
+              rowPreview: safeStringify(
+                { 表單編號: row['表單編號'], 申請人姓名: row['申請人姓名'] },
+                100
+              ),
+            };
+          }
           dbLogger.error('UPSERT 單筆失敗', rowError);
         }
       }
@@ -143,12 +154,41 @@ export class ExpendFormChangeTrackingService {
         errorCount: result.errors.length,
       });
     } catch (error) {
-      await transaction.rollback();
       result.success = false;
       result.errors.push(
         `交易失敗: ${error instanceof Error ? error.message : '未知錯誤'}`
       );
-      dbLogger.error('資料庫交易失敗', error);
+      // 先記錄根因再 rollback，避免 rollback() 拋錯時蓋掉日誌
+      dbLogger.error('[ExpendForm UPSERT] 交易失敗', error);
+      if (firstRowError) {
+        const msg =
+          firstRowError.error instanceof Error
+            ? firstRowError.error.message
+            : String(firstRowError.error);
+        const stack =
+          firstRowError.error instanceof Error
+            ? firstRowError.error.stack
+            : undefined;
+        dbLogger.error(
+          '[ExpendForm UPSERT] 可能根因（第一筆失敗）: ' + msg,
+          firstRowError.error,
+          {
+            rowPreview: firstRowError.rowPreview,
+            ...(stack ? { stack } : {}),
+          }
+        );
+      } else {
+        dbLogger.error(
+          '[ExpendForm UPSERT] 無單筆錯誤記錄，失敗可能發生在交易內第一筆操作（如 getTableInfo / 批次查詢現有資料）',
+          undefined,
+          { caughtMessage: error instanceof Error ? error.message : String(error) }
+        );
+      }
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        dbLogger.error('[ExpendForm UPSERT] rollback 時拋錯（可忽略）', rollbackErr);
+      }
     }
     return result;
   }
@@ -173,6 +213,8 @@ export class ExpendFormChangeTrackingService {
     const setClauses = columns
       .map((col, i) => `[${col}] = @param${i}`)
       .join(', ');
+    // 每次 UPDATE 都刷新 更新時間，與 ChangeLog 的 ChangedAt 一致
+    const setWithUpdatedAt = `${setClauses}, [更新時間] = GETDATE()`;
     const request = new sql.Request(transaction);
     request.input('efid', sql.Int, efid);
     columns.forEach((col, i) => {
@@ -181,7 +223,7 @@ export class ExpendFormChangeTrackingService {
       request.input(`param${i}`, sqlType, convertedValue);
     });
     await request.query(
-      `UPDATE ${tableName} SET ${setClauses} WHERE [EFid] = @efid`
+      `UPDATE ${tableName} SET ${setWithUpdatedAt} WHERE [EFid] = @efid`
     );
   }
 

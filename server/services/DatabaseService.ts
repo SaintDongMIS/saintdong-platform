@@ -518,7 +518,32 @@ export class DatabaseService {
       };
     }
 
+    // 數字類型轉換：空字串或非數字字串 → null，避免 SQL Server "Invalid number"
+    if (this.isDecimalOrNumericColumn(columnName)) {
+      return {
+        sqlType,
+        convertedValue: this.convertDecimalValue(value),
+      };
+    }
+
     return { sqlType, convertedValue: value };
+  }
+
+  /** 是否為 Decimal/數字欄位（與 getSqlTypeForColumn 邏輯一致） */
+  private static isDecimalOrNumericColumn(columnName: string): boolean {
+    if (columnName === '匯率' || columnName === '數量') return true;
+    const keywords = ['金額', '總計', '稅額', '單價'];
+    return keywords.some((k) => columnName.includes(k));
+  }
+
+  /** 將值轉為數字或 null，避免傳入非數字導致 SQL 錯誤 */
+  private static convertDecimalValue(value: any): number | null {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return isNaN(value) ? null : value;
+    const s = String(value).trim();
+    if (s === '') return null;
+    const n = parseFloat(s.replace(/,/g, ''));
+    return isNaN(n) ? null : n;
   }
 
   /**

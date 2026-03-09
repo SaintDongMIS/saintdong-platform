@@ -59,23 +59,33 @@ export class PaymentInheritanceService {
     rows: ExcelRow[],
     prepaymentIndex: Map<string, ExcelRow>
   ): ExcelRow[] {
-    return rows.map((row) =>
-      this.processRowPaymentInheritance(row, prepaymentIndex)
-    );
+    let missingPrepaymentCount = 0;
+    const result = rows.map((row) => {
+      const { enriched, missingPrepayment } =
+        this.processRowPaymentInheritanceWithFlag(row, prepaymentIndex);
+      if (missingPrepayment) missingPrepaymentCount++;
+      return enriched;
+    });
+    if (missingPrepaymentCount > 0) {
+      excelLogger.warn('共有 N 筆找不到對應的預先付款單（明細為 debug）', {
+        missingPrepaymentCount,
+      });
+    }
+    return result;
   }
 
   /**
-   * 處理單一行的付款資訊繼承
+   * 處理單一行的付款資訊繼承（內部用，回傳是否找不到預先付款單供統計）
    */
-  private static processRowPaymentInheritance(
+  private static processRowPaymentInheritanceWithFlag(
     row: ExcelRow,
     prepaymentIndex: Map<string, ExcelRow>
-  ): ExcelRow {
+  ): { enriched: ExcelRow; missingPrepayment: boolean } {
     const enrichedRow = { ...row };
 
     // 只處理費用報銷單
     if (!this.isExpenseReimbursementForm(enrichedRow)) {
-      return enrichedRow;
+      return { enriched: enrichedRow, missingPrepayment: false };
     }
 
     // 查找對應的預先付款單
@@ -86,21 +96,32 @@ export class PaymentInheritanceService {
 
     if (!prepaymentData) {
       this.logMissingPrepayment(enrichedRow);
-      return enrichedRow;
+      return { enriched: enrichedRow, missingPrepayment: true };
     }
 
     // 繼承付款資訊
     this.inheritPaymentInfo(enrichedRow, prepaymentData);
     this.logSuccessfulInheritance(enrichedRow, prepaymentData);
 
-    return enrichedRow;
+    return { enriched: enrichedRow, missingPrepayment: false };
   }
 
   /**
-   * 記錄找不到預先付款單的警告
+   * 處理單一行的付款資訊繼承
+   */
+  private static processRowPaymentInheritance(
+    row: ExcelRow,
+    prepaymentIndex: Map<string, ExcelRow>
+  ): ExcelRow {
+    return this.processRowPaymentInheritanceWithFlag(row, prepaymentIndex)
+      .enriched;
+  }
+
+  /**
+   * 記錄找不到預先付款單（改為 debug 減少 log 雜訊，需要時可開 debug 層級）
    */
   private static logMissingPrepayment(row: ExcelRow): void {
-    excelLogger.warn('找不到對應的預先付款單', {
+    excelLogger.debug('找不到對應的預先付款單', {
       expenseFormNumber: row['表單編號'],
       prepaymentFormNumber: row['勾稽單號'],
     });

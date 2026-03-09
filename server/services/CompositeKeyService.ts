@@ -67,8 +67,11 @@ export class CompositeKeyService {
           ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
           : dateStr.trim();
 
-      case 'decimal':
-        return parseFloat(String(value)).toFixed(2);
+      case 'decimal': {
+        // Excel 常帶千分位 "10,737.00"，parseFloat 遇逗號會只取前面 → 先去掉逗號再算
+        const num = parseFloat(String(value).replace(/,/g, ''));
+        return Number.isFinite(num) ? num.toFixed(2) : '0.00';
+      }
 
       default:
         return value.toString().trim();
@@ -77,18 +80,28 @@ export class CompositeKeyService {
 
   /**
    * 依 EXPEND_FORM_KEY_SPEC 綁定參數並回傳 WHERE 條件（單一鍵）
+   * 分攤行：Excel key 的 項目原幣金額=0，DB 存 10737，查詢時略過 項目原幣金額 條件才查得到
    */
   private static buildExpendFormKeyCondition(
     parsed: ExpendFormParsed,
     paramPrefix: string,
     request: sql.Request,
   ): string {
+    const allocationDept = (parsed['分攤參與部門'] ?? '').toString().trim();
+    const expenseItem = (parsed['費用項目'] ?? '').toString().trim();
+    const isAllocationRow = !!allocationDept && !expenseItem;
+
     const conditions: string[] = [];
     EXPEND_FORM_KEY_SPEC.forEach((s, i) => {
       const paramName = `${paramPrefix}_f${i}`;
       const value = (parsed[s.name] ?? '') as string;
       request.input(paramName, sql.NVarChar, value);
       const col = `[${s.name}]`;
+
+      if (s.name === '項目原幣金額' && isAllocationRow) {
+        conditions.push('(1=1)');
+        return;
+      }
       if (s.type === 'string') {
         conditions.push(`ISNULL(${col}, '') = @${paramName}`);
       } else if (s.type === 'date') {
@@ -106,6 +119,7 @@ export class CompositeKeyService {
 
   /**
    * 生成費用報銷單複合鍵（依 EXPEND_FORM_KEY_SPEC）
+   * 分攤行：Excel 經 sanitizeInheritedData 後 項目原幣金額=0，DB 仍存 10737，組鍵時統一用 0.00 才能對到
    */
   static generateExpendFormKey(row: ExcelRow): string | null {
     const first = this.normalizeValue(row[EXPEND_FORM_KEY_SPEC[0].name], EXPEND_FORM_KEY_SPEC[0].type);
@@ -114,6 +128,15 @@ export class CompositeKeyService {
     const keyParts = EXPEND_FORM_KEY_SPEC.map((s) =>
       this.normalizeValue(row[s.name], s.type),
     );
+
+    // 分攤行：分攤參與部門有值且費用項目為空時，項目原幣金額統一為 0.00（Excel 分攤行為 0、DB 為 10737，需一致才對得到）
+    const allocationDept = (row['分攤參與部門'] ?? '').toString().trim();
+    const expenseItem = (row['費用項目'] ?? '').toString().trim();
+    if (allocationDept && !expenseItem) {
+      const itemAmountIndex = EXPEND_FORM_KEY_SPEC.findIndex((s) => s.name === '項目原幣金額');
+      if (itemAmountIndex >= 0) keyParts[itemAmountIndex] = '0.00';
+    }
+
     return keyParts.join(COMPOSITE_KEY_SEPARATOR);
   }
 
@@ -194,8 +217,12 @@ export class CompositeKeyService {
 
     const resultSet = new Set<string>();
 
-    // 分批查詢（避免參數過多）
-    const BATCH_SIZE = 1000;
+    const MAX_PARAMS = 2000;
+    const PARAMS_PER_KEY =
+      keyType === 'ExpendForm'
+        ? EXPEND_FORM_KEY_SPEC.length
+        : 4;
+    const BATCH_SIZE = Math.floor(MAX_PARAMS / PARAMS_PER_KEY);
     for (let i = 0; i < compositeKeys.length; i += BATCH_SIZE) {
       const batch = compositeKeys.slice(i, i + BATCH_SIZE);
       const batchResults = await this.queryKeysBatch(
@@ -241,8 +268,13 @@ export class CompositeKeyService {
 
     const resultMap = new Map<string, any>();
 
-    // 分批查詢（避免參數過多）
-    const BATCH_SIZE = 1000;
+    // SQL Server 單一請求最多 2100 個參數；留餘裕用 2000 計算
+    const MAX_PARAMS = 2000;
+    const PARAMS_PER_KEY =
+      keyType === 'ExpendForm'
+        ? EXPEND_FORM_KEY_SPEC.length
+        : 4; /* RoadConstruction */
+    const BATCH_SIZE = Math.floor(MAX_PARAMS / PARAMS_PER_KEY);
     for (let i = 0; i < compositeKeys.length; i += BATCH_SIZE) {
       const batch = compositeKeys.slice(i, i + BATCH_SIZE);
       
