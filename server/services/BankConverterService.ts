@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import iconv from 'iconv-lite';
 import { BankConverterConfig } from '../constants/bankConverterConfig';
 import { BankConverterExcelConfig } from '../constants/bankConverterExcelConfig';
 import { isSpecialCompany } from './HandlingFeeService';
@@ -362,32 +363,22 @@ export class BankConverterService {
   private static encodePayeeNameBig5MaxBytes(name: string, maxBytes: number): Buffer {
     const trimmed = name.trim();
     if (!trimmed) {
-      return Buffer.alloc(0) as unknown as Buffer;
+      return Buffer.alloc(0);
     }
-    const enc = 'big5' as BufferEncoding;
-    let full: Buffer;
-    try {
-      full = Buffer.from(trimmed, enc) as unknown as Buffer;
-    } catch {
-      full = Buffer.from(trimmed, 'utf8') as unknown as Buffer;
-    }
+    // Node Buffer 本身不支援 big5 編碼；以 iconv-lite 產生 Big5 bytes
+    const full = iconv.encode(trimmed, 'big5') as Buffer;
     if (full.length <= maxBytes) {
       return full;
     }
     let low = 0;
     let high = trimmed.length;
-    let best: Buffer = Buffer.alloc(0) as unknown as Buffer;
+    let best: Buffer = Buffer.alloc(0) as Buffer;
     while (low <= high) {
       const mid = Math.floor((low + high) / 2);
       const slice = trimmed.slice(0, mid);
-      let buf: Buffer;
-      try {
-        buf = Buffer.from(slice, enc) as unknown as Buffer;
-      } catch {
-        buf = Buffer.from(slice, 'utf8') as unknown as Buffer;
-      }
+      const buf = iconv.encode(slice, 'big5') as Buffer;
       if (buf.length <= maxBytes) {
-        best = buf;
+        best = buf as Buffer;
         low = mid + 1;
       } else {
         high = mid - 1;
