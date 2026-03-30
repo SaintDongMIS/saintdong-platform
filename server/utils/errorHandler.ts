@@ -25,7 +25,7 @@ export class ErrorHandler {
       });
     }
 
-    if (error.message?.includes('只允許上傳網銀匯出檔案')) {
+    if (error.message?.includes('只允許上傳付款資料 Excel 檔案')) {
       throw createError({
         statusCode: HttpStatus.BAD_REQUEST,
         statusMessage: error.message,

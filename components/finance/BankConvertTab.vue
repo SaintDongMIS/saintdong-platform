@@ -22,15 +22,15 @@
         網銀付款轉檔
       </h2>
       <p class="text-gray-600">
-        上傳 Commeet 網銀付款匯出（.txt）或付款資料 Excel（.xlsx/.xls），轉換為國泰銀行整批付款格式
+        上傳 Commeet 付款資料 Excel（.xlsx/.xls），轉換為國泰銀行整批付款格式
       </p>
     </div>
 
     <FileUploadZone
       :selected-file="upload.selectedFile.value"
       :is-drag-over="upload.isDragOver.value"
-      accept=".txt,.xlsx,.xls"
-      accept-text="支援 .txt、.xlsx、.xls"
+      accept=".xlsx,.xls"
+      accept-text="支援 .xlsx、.xls"
       color="green"
       input-ref="bankConvertFileInput"
       @dragover="upload.isDragOver.value = true"
@@ -80,18 +80,18 @@
 <script setup lang="ts">
 import { useFileUpload } from '~/composables/useFileUpload';
 import { useToast } from '~/composables/useToast';
-import { ALLOWED_BANK_CONVERT_EXTENSIONS } from '~/constants/fileUpload';
+import { ALLOWED_EXCEL_ONLY } from '~/constants/fileUpload';
 import { downloadBlob, extractFilenameFromHeader } from '~/utils/fileUtils';
 
 const { success, error, warning } = useToast();
 
 const upload = useFileUpload({
-  allowedExtensions: ALLOWED_BANK_CONVERT_EXTENSIONS,
+  allowedExtensions: ALLOWED_EXCEL_ONLY,
   onValidate: async (file: File) => {
     const lower = file.name.toLowerCase();
-    const ok = ALLOWED_BANK_CONVERT_EXTENSIONS.some((ext) => lower.endsWith(ext));
+    const ok = ALLOWED_EXCEL_ONLY.some((ext) => lower.endsWith(ext));
     if (!ok) {
-      warning('請選擇 .txt、.xlsx 或 .xls 檔案');
+      warning('請選擇 .xlsx 或 .xls 檔案');
       return false;
     }
     return true;

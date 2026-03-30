@@ -12,7 +12,7 @@ import { apiLogger } from '../services/LoggerService';
  *
  * POST /api/bank-convert
  * Content-Type: multipart/form-data
- * Body: file（Commeet 網銀付款 .txt 或「付款資料」.xlsx/.xls）
+ * Body: file（Commeet「付款資料」.xlsx/.xls）
  *
  * Response: 轉換後的檔案（Binary，Big5 編碼）
  */
@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
       ErrorHandler.methodNotAllowed();
     }
 
-    // 處理檔案上傳（使用 multer：.txt / .xlsx / .xls）
+    // 處理檔案上傳（使用 multer：.xlsx / .xls）
     const storage = multer.diskStorage({
       destination: async (req, file, cb) => {
         const tempPath = path.join(os.tmpdir(), 'saintdong-uploads');
@@ -49,12 +49,12 @@ export default defineEventHandler(async (event) => {
         const fileExtension = file.originalname
           .toLowerCase()
           .substring(file.originalname.lastIndexOf('.'));
-        const allowed = ['.txt', '.xlsx', '.xls'];
+        const allowed = ['.xlsx', '.xls'];
         if (allowed.includes(fileExtension)) {
           cb(null, true);
         } else {
           cb(
-            new Error('只允許上傳網銀匯出檔案（.txt、.xlsx、.xls）'),
+            new Error('只允許上傳付款資料 Excel 檔案（.xlsx、.xls）'),
             false
           );
         }
@@ -97,13 +97,7 @@ export default defineEventHandler(async (event) => {
     const converter = new BankConverterService();
     let outputBuffer: Buffer;
     try {
-      const ext = uploadedFile.originalname
-        .toLowerCase()
-        .substring(uploadedFile.originalname.lastIndexOf('.'));
-      const isExcel = ext === '.xlsx' || ext === '.xls';
-      outputBuffer = isExcel
-        ? converter.convertExcelBuffer(inputBuffer)
-        : converter.convertFileBuffer(inputBuffer);
+      outputBuffer = converter.convertExcelBuffer(inputBuffer);
     } catch (convertError: any) {
       apiLogger.error('檔案轉換失敗', convertError, {
         filename: uploadedFile.originalname,

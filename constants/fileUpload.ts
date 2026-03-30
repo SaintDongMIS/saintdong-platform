@@ -3,11 +3,7 @@
  */
 
 export const ALLOWED_EXCEL_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
-export const ALLOWED_TXT_EXTENSIONS = ['.txt'];
 export const ALLOWED_EXCEL_ONLY = ['.xlsx', '.xls'];
-
-/** 國泰整批付款轉檔：Commeet 網銀 .txt 或 Payment_*.xlsx */
-export const ALLOWED_BANK_CONVERT_EXTENSIONS = ['.txt', '.xlsx', '.xls'];
 
 export const TOAST_DELAY_MS = 300;
 export const TOAST_DURATION_MS = 6000;
