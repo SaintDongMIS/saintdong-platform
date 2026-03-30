@@ -15,6 +15,8 @@ export interface HandlingFeeResult {
 const SPECIAL_COMPANIES = [
   '台灣中油股份有限公司',
   '雲一有限公司',
+  /** Commeet / 網銀匯出可能被截斷的戶名 */
+  '雲一有限',
 ];
 
 /**

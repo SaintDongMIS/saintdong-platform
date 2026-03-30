@@ -1,4 +1,6 @@
+import * as XLSX from 'xlsx';
 import { BankConverterConfig } from '../constants/bankConverterConfig';
+import { BankConverterExcelConfig } from '../constants/bankConverterExcelConfig';
 import { isSpecialCompany } from './HandlingFeeService';
 import { logger } from './LoggerService';
 
@@ -413,5 +415,245 @@ export class BankConverterService {
     });
 
     return outputBuf;
+  }
+
+  /**
+   * Commeet「付款資料」Excel → 與 convertFileBuffer 相同之 361 bytes + CRLF 輸出
+   */
+  convertExcelBuffer(inputBuffer: Buffer): Buffer {
+    const cfg = BankConverterExcelConfig;
+    const workbook = XLSX.read(inputBuffer, { type: 'buffer' });
+    const sheetName =
+      workbook.SheetNames.includes(cfg.SHEET_NAME)
+        ? cfg.SHEET_NAME
+        : workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new Error('Excel 檔案中沒有工作表');
+    }
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) {
+      throw new Error(`無法讀取工作表「${sheetName}」`);
+    }
+
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1,
+      defval: '',
+      raw: true,
+    }) as unknown[][];
+
+    if (!jsonData.length) {
+      throw new Error('Excel 工作表為空');
+    }
+
+    const rawHeaders = jsonData[0] as unknown[];
+    const headers = rawHeaders.map((h) => BankConverterService.cleanExcelHeader(h));
+    const missing = cfg.REQUIRED_HEADERS.filter((req) => !headers.includes(req));
+    if (missing.length > 0) {
+      throw new Error(`Excel 缺少必要欄位：${missing.join('、')}`);
+    }
+
+    const col: Record<string, number> = {};
+    cfg.REQUIRED_HEADERS.forEach((name) => {
+      col[name] = headers.indexOf(name);
+    });
+
+    const dataRows = jsonData.slice(1);
+    const outLines: Buffer[] = [];
+    let wireCount = 0;
+    let skippedNonWire = 0;
+    let skippedInvalid = 0;
+
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      if (!Array.isArray(row)) continue;
+      if (BankConverterService.isExcelRowEmpty(row)) continue;
+
+      const method = BankConverterService.cellString(row[col[cfg.HEADER.PAYMENT_METHOD]]);
+      if (method !== cfg.PAYMENT_METHOD_WIRE) {
+        skippedNonWire++;
+        continue;
+      }
+
+      const payeeName = BankConverterService.cellString(row[col[cfg.HEADER.PAYEE_NAME]]).trim();
+      const bankCodeRaw = row[col[cfg.HEADER.BANK_CODE]];
+      const accountRaw = row[col[cfg.HEADER.ACCOUNT]];
+      const amountCell = row[col[cfg.HEADER.AMOUNT]];
+
+      const bankDigits = BankConverterService.bankCodeDigitsOnly(bankCodeRaw);
+      const accountDigits = BankConverterService.accountDigitsPreserve(accountRaw);
+      if (!payeeName || !bankDigits || !accountDigits || amountCell === '' || amountCell == null) {
+        skippedInvalid++;
+        if (skippedInvalid <= 3) {
+          logger.debug('Excel 列略過（匯款但欄位不完整）', {
+            rowIndex: i + 2,
+            formNo: BankConverterService.cellString(row[col[cfg.HEADER.FORM_NO]]),
+          });
+        }
+        continue;
+      }
+
+      const payeeBank3 = bankDigits.padStart(3, '0').slice(-3);
+      let amount14: string;
+      try {
+        amount14 = BankConverterService.parseAmountToAmount14(amountCell);
+      } catch (e: any) {
+        skippedInvalid++;
+        logger.debug('Excel 金額無法解析', {
+          rowIndex: i + 2,
+          message: e?.message,
+        });
+        continue;
+      }
+
+      const amount17 = amount14 + payeeBank3;
+      if (amount17.length !== 17) {
+        skippedInvalid++;
+        continue;
+      }
+
+      const receiveNameBytes = BankConverterService.encodePayeeNameBig5MaxBytes(
+        payeeName,
+        BankConverterConfig.FIELD_POSITIONS.PAYEE_NAME.length
+      );
+
+      const parsed: ParsedBankLine = {
+        date: '19700101',
+        transType: cfg.TRANS_TYPE,
+        bankCode: cfg.PAYER_BANK_CODE_3,
+        payerAccountDigits: cfg.PAYER_ACCOUNT_DIGITS.replace(/\D/g, ''),
+        serial: cfg.SERIAL_FIXED,
+        amount17,
+        payeeAccountDigits: accountDigits.slice(0, 16),
+        receiveNameBytes,
+        receiveNameText: payeeName,
+        originalHandlingFeeAllocation: '000000',
+      };
+
+      outLines.push(this.convertLine(parsed));
+      wireCount++;
+    }
+
+    logger.info('Excel 轉檔統計', {
+      totalDataRows: dataRows.length,
+      outputLines: wireCount,
+      skippedNonWire,
+      skippedInvalid,
+    });
+
+    if (outLines.length === 0) {
+      const msg =
+        `無法從 Excel 產生任何匯款列：資料列 ${dataRows.length} 筆；非匯款略過 ${skippedNonWire} 筆；匯款欄位不完整或金額錯誤 ${skippedInvalid} 筆。請確認「付款方式」為「${cfg.PAYMENT_METHOD_WIRE}」且欄位齊全。`;
+      logger.error(msg);
+      throw new Error(msg);
+    }
+
+    const crlf = Buffer.from([0x0d, 0x0a]);
+    return Buffer.concat(outLines.flatMap((l) => [l, crlf]));
+  }
+
+  private static cleanExcelHeader(value: unknown): string {
+    if (value == null || value === '') return '';
+    return String(value).trim().replace(/^\*/, '');
+  }
+
+  private static isExcelRowEmpty(row: unknown[]): boolean {
+    if (!row || !row.length) return true;
+    return row.every(
+      (c) =>
+        c === null ||
+        c === undefined ||
+        c === '' ||
+        (typeof c === 'string' && c.trim() === '')
+    );
+  }
+
+  private static cellString(value: unknown): string {
+    if (value == null || value === undefined) return '';
+    return String(value).trim();
+  }
+
+  /** 銀行代碼：只保留數字，去空白 */
+  private static bankCodeDigitsOnly(value: unknown): string {
+    return BankConverterService.cellString(value).replace(/\D/g, '');
+  }
+
+  /**
+   * 帳號：盡量保留前導零。若儲存格為數字型別，無法還原 Excel 文字型帳號，仍以數字字串表示。
+   */
+  private static accountDigitsPreserve(value: unknown): string {
+    if (value == null || value === undefined) return '';
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      if (Number.isInteger(value)) return String(value);
+      return String(Math.trunc(value));
+    }
+    return String(value).replace(/[^\d]/g, '');
+  }
+
+  /**
+   * 「付款金額（本幣）」→ 14 位金額字串（分，無小數點）。
+   * 支援：字串 "174,000.00"；或數字 174000（視為元，*100）。
+   */
+  private static parseAmountToAmount14(cell: unknown): string {
+    if (cell === null || cell === undefined || cell === '') {
+      throw new Error('金額為空');
+    }
+    if (typeof cell === 'number' && Number.isFinite(cell)) {
+      const cents = Math.round(cell * 100);
+      if (cents < 0) throw new Error('金額不可為負');
+      return String(cents).padStart(14, '0');
+    }
+    const s = String(cell).trim().replace(/,/g, '');
+    const m = s.match(/^(\d+)\.(\d{2})$/);
+    if (m && m[1] && m[2]) {
+      const cents = parseInt(m[1] + m[2], 10);
+      if (!Number.isFinite(cents) || cents < 0) throw new Error('金額格式錯誤');
+      return String(cents).padStart(14, '0');
+    }
+    if (/^\d+$/.test(s)) {
+      const yuan = parseInt(s, 10);
+      const cents = yuan * 100;
+      return String(cents).padStart(14, '0');
+    }
+    throw new Error(`無法解析金額：${s}`);
+  }
+
+  /**
+   * 收款人戶名 → Big5 bytes，至多 maxBytes，避免切斷雙位元組字元。
+   */
+  private static encodePayeeNameBig5MaxBytes(name: string, maxBytes: number): Buffer {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return Buffer.alloc(0);
+    }
+    const enc = 'big5' as BufferEncoding;
+    let full: Buffer;
+    try {
+      full = Buffer.from(trimmed, enc);
+    } catch {
+      full = Buffer.from(trimmed, 'utf8');
+    }
+    if (full.length <= maxBytes) {
+      return full;
+    }
+    let low = 0;
+    let high = trimmed.length;
+    let best = Buffer.alloc(0);
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const slice = trimmed.slice(0, mid);
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(slice, enc);
+      } catch {
+        buf = Buffer.from(slice, 'utf8');
+      }
+      if (buf.length <= maxBytes) {
+        best = buf;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return best;
   }
 }
