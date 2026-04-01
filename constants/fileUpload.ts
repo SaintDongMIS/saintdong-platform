@@ -3,7 +3,6 @@
  */
 
 export const ALLOWED_EXCEL_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
-export const ALLOWED_TXT_EXTENSIONS = ['.txt'];
 export const ALLOWED_EXCEL_ONLY = ['.xlsx', '.xls'];
 
 export const TOAST_DELAY_MS = 300;

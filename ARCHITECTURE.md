@@ -108,6 +108,7 @@ API 端點定義在 `server/api/` 目錄下，例如：
 
 - `POST /api/upload/finance`: 處理財務部檔案上傳
 - `POST /api/upload/road-construction`: 處理道路施工部檔案上傳
+- `POST /api/bank-convert`: 國泰整批付款轉檔（Commeet 付款資料 Excel `.xlsx`/`.xls` → 固定寬度 361 bytes + CRLF 之 `.txt`，Big5）。手動測試步驟見 `docs/BANK_CONVERT_TESTING.md`。
 - `GET /api/finance/reports`: 取得財務報表資料
 
 **注意**: `create-table` 和 `update-table` 相關的 API 端點已被新的資料庫遷移流程取代，應視為已棄用。
@@ -115,6 +116,7 @@ API 端點定義在 `server/api/` 目錄下，例如：
 ### 核心服務
 
 - **檔案上傳處理**: 驗證並解析 Excel 檔案。
+- **國泰整批付款轉檔** (`BankConverterService` + `server/constants/bankConverterConfig.ts` / `bankConverterExcelConfig.ts`): 將 Commeet「付款資料」工作表對應為國泰上傳格式；輸出每行 361 bytes，手續費 13/15 仍由 `HandlingFeeService.isSpecialCompany`（依 Excel `付款對象名稱`）決定。
 - **資料庫操作**: 透過 `DatabaseService` 執行 SQL 操作。
 - **資料表定義**: 透過 `TableDefinitionService` 統一管理資料表 Schema。
 - **錯誤處理**: 統一的錯誤回應機制。

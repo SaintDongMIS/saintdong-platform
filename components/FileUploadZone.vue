@@ -8,6 +8,7 @@
     :class="getDragOverClass"
   >
     <input
+      :id="fileInputId"
       :ref="inputRef"
       type="file"
       :accept="accept"
@@ -99,6 +100,8 @@ interface Props {
   acceptText: string;
   color?: string;
   inputRef?: string;
+  /** 設於 file input 的 id，供父層精準觸發選檔 */
+  fileInputId?: string;
 }
 
 interface Emits {
@@ -114,6 +117,7 @@ const props = withDefaults(defineProps<Props>(), {
   isDragOver: false,
   color: 'blue',
   inputRef: 'fileInput',
+  fileInputId: undefined,
 });
 
 const emit = defineEmits<Emits>();

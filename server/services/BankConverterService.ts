@@ -1,6 +1,18 @@
+import iconv from 'iconv-lite';
 import { BankConverterConfig } from '../constants/bankConverterConfig';
-import { isSpecialCompany } from './HandlingFeeService';
+import { BankConverterExcelConfig } from '../constants/bankConverterExcelConfig';
 import { logger } from './LoggerService';
+import {
+  extractCommeetWireExportRows,
+  readCommeetSheetMatrix,
+} from '../../utils/commeetBankExcelParse';
+import {
+  groupCommeetWireRowsByPayeeName,
+  normalizePayeeName,
+  sumAmount14Strings,
+} from '../../utils/bankWireMerge';
+import { isSpecialPayeeCompany } from '../../utils/specialPayeeCompany';
+import type { BankWireLedgerRow } from './BankWireExportLogService';
 
 interface ParsedBankLine {
   date: string;
@@ -12,198 +24,22 @@ interface ParsedBankLine {
   payeeAccountDigits: string;
   receiveNameBytes: Buffer;
   receiveNameText: string; // 新增：收款人戶名文字（用於手續費計算）
-  originalHandlingFeeAllocation: string; // 原始檔案中的手續費分攤方式（6位數，如130000、150000）
 }
 
 /**
- * 國泰網銀拆分格式 -> receive.txt 固定寬度格式轉換服務
+ * Commeet「付款資料」Excel -> 國泰整批付款 receive.txt 固定寬度格式轉換服務
  */
 export class BankConverterService {
   private positions = BankConverterConfig.FIELD_POSITIONS;
   private lineLength = BankConverterConfig.LINE_LENGTH;
 
-  /**
-   * 以 bytes 解析網銀原始一行（latin1 讓字元=byte）
-   */
-  private parseBankLineBytes(lineLatin1: string): ParsedBankLine | null {
-    if (!lineLatin1) return null;
-
-    // 例：0        20260115SPU          013    265030001102    23265946 .... TWD+00000016200000050    16008050043               國立宜蘭大學４０２專戶 .... 0 .... 130000
-    // 或：0        20260131SPU          0130000265030001102    23265946 .... TWD+...
-    const head = lineLatin1.match(/^0\s+(\d{8})(SPU|TRN)\s+/);
-    if (!head || !head[1] || !head[2]) {
-      logger.debug('解析失敗：行首格式不符', {
-        lineStart: lineLatin1.substring(0, 30),
-      });
-      return null;
-    }
-    const date = head[1];
-    const transType = head[2];
-
-    const afterHead = lineLatin1.slice(head[0].length);
-
-    // 嘗試匹配 3 位銀行代碼（後接空格），或 7 位銀行代碼（後接帳號）
-    let bankCodeMatch = afterHead.match(/^(\d{3})\s+/);
-    let bankCode: string;
-    let bankCodeLength: number; // 用於記錄匹配的長度
-
-    if (bankCodeMatch && bankCodeMatch[1]) {
-      // 格式：013     (3位銀行代碼 + 空格)
-      bankCode = bankCodeMatch[1];
-      bankCodeLength = bankCodeMatch[0].length;
-    } else {
-      // 格式：0130000265030001102 (可能是 7位銀行代碼 + 帳號，無空格分隔)
-      // 嘗試匹配 7 位銀行代碼（0130000）或 3 位銀行代碼（013）
-      const bankCode7Match = afterHead.match(/^(\d{7})/);
-      if (bankCode7Match && bankCode7Match[1]) {
-        // 取前3位作為銀行代碼
-        bankCode = bankCode7Match[1].substring(0, 3);
-        bankCodeLength = bankCode7Match[0].length;
-      } else {
-        logger.debug('解析失敗：無法識別銀行代碼', {
-          afterHead: afterHead.substring(0, 20),
-        });
-        return null;
-      }
-    }
-
-    const afterBankCode = afterHead.slice(bankCodeLength);
-
-    // 解析付款人帳號
-    // 格式可能是：
-    // 1. 013    265030001102（3位銀行代碼 + 空格 + 帳號）
-    // 2. 0130000265030001102（7位銀行代碼直接接帳號，無空格）
-    let accountMatch: RegExpMatchArray | null;
-    let account: string;
-
-    // 先嘗試匹配標準格式（有空格）
-    accountMatch = afterBankCode.match(/^\s+(\d{1,16})/);
-
-    if (accountMatch && accountMatch[1]) {
-      // 標準格式：有空格分隔
-      account = accountMatch[1];
-    } else {
-      // 可能是連續數字格式：如果 afterHead 以 7 位數字開頭（非3位+空格），
-      // 則帳號從第 8 位開始，直到遇到空格或非數字
-      const continuousMatch = afterHead.match(/^(\d{7})(\d{1,16})(\s|$)/);
-      if (continuousMatch && continuousMatch[2]) {
-        account = continuousMatch[2];
-        // 使用原始的 continuousMatch 作為 accountMatch，但只取帳號部分
-        accountMatch = continuousMatch;
-      } else {
-        // 嘗試匹配緊接在銀行代碼後的數字（無空格）
-        const noSpaceMatch = afterBankCode.match(/^(\d{1,16})(\s|$)/);
-        if (noSpaceMatch && noSpaceMatch[1]) {
-          account = noSpaceMatch[1];
-          accountMatch = noSpaceMatch;
-        } else {
-          logger.debug('解析失敗：無法識別付款人帳號', {
-            afterHead: afterHead.substring(0, 40),
-            afterBankCode: afterBankCode.substring(0, 40),
-          });
-          return null;
-        }
-      }
-    }
-
-    const serialMatch = lineLatin1.match(/(\d{8})\s+TWD\+/);
-    if (!serialMatch || !serialMatch[1]) {
-      logger.debug('解析失敗：無法找到交易序號和TWD+', {
-        lineSearch: lineLatin1.includes('TWD+') ? 'found TWD+' : 'no TWD+',
-        linePreview: lineLatin1.substring(40, 80),
-      });
-      return null;
-    }
-    const serial = serialMatch[1];
-
-    const twdIdx = lineLatin1.indexOf('TWD+');
-    if (twdIdx === -1) {
-      logger.debug('解析失敗：找不到 TWD+', {
-        linePreview: lineLatin1.substring(50, 100),
-      });
-      return null;
-    }
-
-    const afterTwd = lineLatin1.slice(twdIdx + 4);
-    const amountMatch = afterTwd.match(/^(\d{17})/);
-    if (!amountMatch || !amountMatch[1]) return null;
-    const amount17 = amountMatch[1];
-
-    // 收款帳號（amount17 後的下一段數字）
-    const afterAmountAbs = twdIdx + 4 + amount17.length;
-    const tailAfterAmount = lineLatin1.slice(afterAmountAbs);
-    const receiveAccMatch = tailAfterAmount.match(/^\s*(\d{1,16})/);
-    if (!receiveAccMatch || !receiveAccMatch[1]) return null;
-    const receiveAccountRaw = receiveAccMatch[1];
-    const receiveAccEndAbs = afterAmountAbs + receiveAccMatch[0].length; // 含前導空白 + 數字
-
-    // 最後 6 位數：手續費分攤方式（前2位是13或15，後面補0，如130000、150000）
-    const handlingFeeMatch = lineLatin1.match(/(\d{6})\s*$/);
-    if (!handlingFeeMatch || !handlingFeeMatch[1]) {
-      logger.debug('解析失敗：無法找到最後6位手續費分攤方式', {
-        lineEnd: lineLatin1.substring(Math.max(0, lineLatin1.length - 20)),
-      });
-      return null;
-    }
-    const originalHandlingFeeAllocation = handlingFeeMatch[1];
-
-    // 找最後那個「單獨的 0 欄位」（收款人是否電告），以它作為收款戶名結束點
-    let zeroPos = -1;
-    for (let pos = lineLatin1.length - 1; pos >= 0; pos--) {
-      if (lineLatin1[pos] === '0') {
-        const prev = pos > 0 ? lineLatin1[pos - 1] : '';
-        const next = pos < lineLatin1.length - 1 ? lineLatin1[pos + 1] : '';
-        if (prev === ' ' && next === ' ') {
-          zeroPos = pos;
-          break;
-        }
-        // 也檢查行尾的情況（next 可能是空或換行）
-        if (prev === ' ' && (next === '' || next === '\r' || next === '\n')) {
-          zeroPos = pos;
-          break;
-        }
-      }
-    }
-    if (zeroPos === -1) {
-      logger.debug('解析失敗：找不到收款人是否電告的0欄位', {
-        lineEnd: lineLatin1.substring(Math.max(0, lineLatin1.length - 30)),
-        lineLength: lineLatin1.length,
-      });
-      return null;
-    }
-
-    // 收款戶名在「收款帳號結束」到「zeroPos」之間（去掉空白）
-    const receiveNameRaw = lineLatin1.slice(receiveAccEndAbs, zeroPos).trim();
-
-    // 付款人帳號：最多 16 位
-    const payerAccountDigits = account.replace(/\D/g, '');
-    // 收款帳號：最多 16 位
-    const payeeAccountDigits = receiveAccountRaw.replace(/\D/g, '');
-
-    // 將收款戶名從 latin1 轉換為文字（用於手續費計算）
-    // 嘗試解碼為 Big5，如果失敗則使用原始字串
-    let receiveNameText = '';
-    try {
-      const nameBuffer = Buffer.from(receiveNameRaw, 'latin1');
-      // 使用類型斷言來處理 Big5 編碼
-      receiveNameText = nameBuffer.toString('big5' as BufferEncoding).trim();
-    } catch {
-      receiveNameText = receiveNameRaw.trim();
-    }
-
-    return {
-      date,
-      transType,
-      bankCode,
-      payerAccountDigits,
-      serial,
-      amount17, // 14位金額 + 3位收款行(例：...013)
-      payeeAccountDigits,
-      // 收款戶名 bytes（Big5），保持原樣：latin1 轉回 bytes 不會變亂碼
-      receiveNameBytes: Buffer.from(receiveNameRaw.trim(), 'latin1'),
-      receiveNameText, // 新增：收款人戶名文字
-      originalHandlingFeeAllocation, // 原始手續費分攤方式（6位數格式）
-    };
+  private static warnMergedGroupBank3Mismatch(params: {
+    formNo: string;
+    payeeName: string;
+    bank3: string;
+    firstBank3: string;
+  }) {
+    logger.warn('合併群組內收款行末三碼不一致，TXT 採用首列', params);
   }
 
   /**
@@ -313,7 +149,7 @@ export class BankConverterService {
     // 判斷是否為特例公司，決定手續費分攤方式
     // 特例公司：台灣中油、雲一 → 手續費30元外加 → 強制使用15（外加）
     // 一般情況：一律使用13（內扣）
-    const isSpecial = isSpecialCompany(parsed.receiveNameText);
+    const isSpecial = isSpecialPayeeCompany(parsed.receiveNameText);
 
     // 如果是特例公司，強制使用15（外加）；否則一律使用13（內扣）
     const handlingFeeAllocation: string = isSpecial ? '15' : '13';
@@ -339,79 +175,145 @@ export class BankConverterService {
   }
 
   /**
-   * 轉換檔案 Buffer：輸入網銀檔(big5 bytes) -> 輸出 receive(big5 bytes, CRLF)
+   * Commeet「付款資料」Excel → 與 convertFileBuffer 相同之 361 bytes + CRLF 輸出
    */
-  convertFileBuffer(inputBuffer: Buffer): Buffer {
-    const inputLatin1 = inputBuffer.toString('latin1');
-    const rawLines = inputLatin1.split(/\r?\n/);
+  convertExcelBuffer(
+    inputBuffer: Buffer,
+    options?: { excludedFormNos?: Set<string> }
+  ): { outputBuffer: Buffer; ledgerRows: BankWireLedgerRow[] } {
+    const cfg = BankConverterExcelConfig;
+    const sheet = readCommeetSheetMatrix(inputBuffer, cfg);
+    if (!sheet.ok) {
+      throw new Error(sheet.error);
+    }
 
-    logger.debug('開始轉換檔案', {
-      inputSize: inputBuffer.length,
-      totalLines: rawLines.length,
-    });
+    const extracted = extractCommeetWireExportRows(sheet.jsonData, cfg);
+    if (!extracted.ok) {
+      throw new Error(extracted.error);
+    }
 
+    const excluded = options?.excludedFormNos ?? new Set<string>();
+    let skippedExcluded = 0;
+    for (const row of extracted.rows) {
+      if (excluded.has(row.formNo)) skippedExcluded++;
+    }
+
+    const groups = groupCommeetWireRowsByPayeeName(extracted.rows, excluded);
+    const ledgerRows: BankWireLedgerRow[] = [];
     const outLines: Buffer[] = [];
-    let parsedCount = 0;
-    let skippedCount = 0;
-    let emptyLineCount = 0;
 
-    for (let i = 0; i < rawLines.length; i++) {
-      const line = rawLines[i];
-      if (!line) {
-        emptyLineCount++;
-        continue;
-      }
-      const raw = line.replace(/\r$/, '');
-      if (!raw) {
-        emptyLineCount++;
-        continue;
-      }
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i]!;
+      const mergedLineIndex = i + 1;
+      const first = group[0]!;
+      const amount14 = sumAmount14Strings(group.map((g) => g.amount14));
 
-      const parsed = this.parseBankLineBytes(raw);
-      if (!parsed) {
-        skippedCount++;
-        // 記錄前幾行失敗的內容以便除錯
-        if (skippedCount <= 3) {
-          logger.debug(`無法解析第 ${i + 1} 行`, {
-            linePreview: raw.substring(0, 100),
+      for (const r of group) {
+        if (r.payeeBank3 !== first.payeeBank3) {
+          BankConverterService.warnMergedGroupBank3Mismatch({
+            formNo: r.formNo,
+            payeeName: r.payeeName,
+            bank3: r.payeeBank3,
+            firstBank3: first.payeeBank3,
           });
         }
-        continue;
+        ledgerRows.push({
+          mergedLineIndex,
+          payeeName: normalizePayeeName(r.payeeName),
+          payeeAccountDigits: r.accountDigits,
+          bankCodeDigits: r.bankDigits,
+          formNo: r.formNo,
+          amountCents: parseInt(r.amount14, 10) || 0,
+        });
       }
 
-      const outLineBuf = this.convertLine(parsed);
-      outLines.push(outLineBuf);
-      parsedCount++;
+      const payeeBank3 = first.payeeBank3;
+      const amount17 = amount14 + payeeBank3;
+      if (amount17.length !== 17) {
+        throw new Error(
+          `合併後金額與收款行代碼組合異常（${first.payeeName}），請檢查金額或銀行代碼。`
+        );
+      }
+
+      const receiveNameBytes = BankConverterService.encodePayeeNameBig5MaxBytes(
+        first.payeeName,
+        BankConverterConfig.FIELD_POSITIONS.PAYEE_NAME.length
+      );
+
+      const parsed: ParsedBankLine = {
+        date: '19700101',
+        transType: cfg.TRANS_TYPE,
+        bankCode: cfg.PAYER_BANK_CODE_3,
+        payerAccountDigits: cfg.PAYER_ACCOUNT_DIGITS.replace(/\D/g, ''),
+        serial: cfg.SERIAL_FIXED,
+        amount17,
+        payeeAccountDigits: first.accountDigits.slice(0, 16),
+        receiveNameBytes,
+        receiveNameText: normalizePayeeName(first.payeeName),
+      };
+
+      outLines.push(this.convertLine(parsed));
     }
 
-    logger.info('檔案轉換統計', {
-      totalLines: rawLines.length,
-      parsedCount,
-      skippedCount,
-      emptyLineCount,
-    });
-
-    // 如果沒有任何行被成功解析，拋出錯誤
-    if (outLines.length === 0) {
-      const errorMsg = `無法解析檔案內容：已處理 ${rawLines.length} 行，跳過 ${skippedCount} 行，空行 ${emptyLineCount} 行。請確認檔案格式是否正確。預期格式：行首應為 "0        YYYYMMDDSPU/TRN"`;
-      logger.error(errorMsg, {
-        totalLines: rawLines.length,
-        skippedCount,
-        emptyLineCount,
-        firstFewLines: rawLines.slice(0, 3).map((l) => l.substring(0, 100)),
-      });
-      throw new Error(errorMsg);
-    }
-
-    // join with CRLF, keep bytes (Big5)
-    const crlf = Buffer.from([0x0d, 0x0a]);
-    const outputBuf = Buffer.concat(outLines.flatMap((l) => [l, crlf]));
-
-    logger.info('檔案轉換完成', {
-      outputSize: outputBuf.length,
+    logger.info('Excel 轉檔統計', {
+      totalDataRows: extracted.totalDataRows,
+      validWireRows: extracted.rows.length,
+      mergeGroups: groups.length,
       outputLines: outLines.length,
+      skippedNonWire: extracted.skippedNonWire,
+      skippedInvalid: extracted.skippedInvalid,
+      skippedExcluded,
     });
 
-    return outputBuf;
+    if (outLines.length === 0) {
+      if (
+        extracted.rows.length > 0 &&
+        skippedExcluded === extracted.rows.length
+      ) {
+        throw new Error(
+          '已排除所有匯款列，請至少保留一筆轉檔，或取消勾選「不轉檔」。'
+        );
+      }
+      const msg =
+        `無法從 Excel 產生任何匯款列：資料列 ${extracted.totalDataRows} 筆；非匯款略過 ${extracted.skippedNonWire} 筆；匯款欄位不完整或金額錯誤 ${extracted.skippedInvalid} 筆。請確認「付款方式」為「${cfg.PAYMENT_METHOD_WIRE}」且欄位齊全。`;
+      logger.error(msg);
+      throw new Error(msg);
+    }
+
+    const crlf = Buffer.from([0x0d, 0x0a]);
+    const outputBuffer = Buffer.concat(
+      outLines.flatMap((l) => [l, crlf])
+    );
+    return { outputBuffer, ledgerRows };
+  }
+
+  /**
+   * 收款人戶名 → Big5 bytes，至多 maxBytes，避免切斷雙位元組字元。
+   */
+  private static encodePayeeNameBig5MaxBytes(name: string, maxBytes: number): Buffer {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return Buffer.alloc(0);
+    }
+    // Node Buffer 本身不支援 big5 編碼；以 iconv-lite 產生 Big5 bytes
+    const full = iconv.encode(trimmed, 'big5') as Buffer;
+    if (full.length <= maxBytes) {
+      return full;
+    }
+    let low = 0;
+    let high = trimmed.length;
+    let best: Buffer = Buffer.alloc(0) as Buffer;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const slice = trimmed.slice(0, mid);
+      const buf = iconv.encode(slice, 'big5') as Buffer;
+      if (buf.length <= maxBytes) {
+        best = buf as Buffer;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return best;
   }
 }

@@ -25,10 +25,39 @@ export class ErrorHandler {
       });
     }
 
+    if (error.message?.includes('只允許上傳付款資料 Excel 檔案')) {
+      throw createError({
+        statusCode: HttpStatus.BAD_REQUEST,
+        statusMessage: error.message,
+      });
+    }
+
+    // 國泰轉檔：Excel 格式或內容錯誤（轉檔即驗證）
+    if (
+      error.message?.includes('Excel 缺少必要欄位') ||
+      error.message?.includes('無法從 Excel 產生') ||
+      error.message?.includes('已排除所有匯款列') ||
+      error.message?.includes('合併後金額與收款行代碼') ||
+      error.message?.includes('Excel 工作表為空') ||
+      error.message?.includes('無法讀取工作表')
+    ) {
+      throw createError({
+        statusCode: HttpStatus.BAD_REQUEST,
+        statusMessage: error.message,
+      });
+    }
+
     // Excel 解析錯誤
     if (error.message?.includes('Excel 檔案解析失敗')) {
       throw createError({
         statusCode: HttpStatus.BAD_REQUEST,
+        statusMessage: error.message,
+      });
+    }
+
+    if (error.message?.includes('轉檔成功但紀錄寫入失敗')) {
+      throw createError({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         statusMessage: error.message,
       });
     }

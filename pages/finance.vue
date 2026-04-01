@@ -108,7 +108,7 @@
                   d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
                 ></path>
               </svg>
-              <span>網銀付款txt轉檔</span>
+              <span>網銀付款轉檔</span>
             </div>
           </button>
           <button
@@ -223,7 +223,7 @@
       <!-- 資料匯入 -->
       <FinanceDataImportTab v-if="activeTab === 'import'" />
 
-      <!-- 網銀付款txt轉檔 -->
+      <!-- 網銀付款轉檔 -->
       <FinanceBankConvertTab v-if="activeTab === 'bankConvert'" />
 
       <!-- 付款報表事由填補 -->
