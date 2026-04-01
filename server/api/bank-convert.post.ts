@@ -3,16 +3,67 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import multer from 'multer';
+import crypto from 'crypto';
 import { BankConverterService } from '../services/BankConverterService';
+import {
+  insertBankWireExportLedger,
+  type BankWireLedgerRow,
+} from '../services/BankWireExportLogService';
 import { ErrorHandler } from '../utils/errorHandler';
 import { apiLogger } from '../services/LoggerService';
+
+function taipeiDateParts(now: Date): {
+  year: string;
+  month: string;
+  day: string;
+  hour: string;
+  minute: string;
+  second: string;
+} {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const parts = dtf.formatToParts(now);
+  return {
+    year: parts.find((p) => p.type === 'year')?.value || '1970',
+    month: parts.find((p) => p.type === 'month')?.value || '01',
+    day: parts.find((p) => p.type === 'day')?.value || '01',
+    hour: parts.find((p) => p.type === 'hour')?.value || '00',
+    minute: parts.find((p) => p.type === 'minute')?.value || '00',
+    second: parts.find((p) => p.type === 'second')?.value || '00',
+  };
+}
+
+function createBankWireBatchId(now: Date): string {
+  const { year, month, day, hour, minute, second } = taipeiDateParts(now);
+  const ts = `${year}${month}${day}-${hour}${minute}${second}`;
+  const suffix = crypto
+    .randomBytes(3)
+    .toString('base64url')
+    .toUpperCase()
+    .slice(0, 4);
+  return `BW-${ts}-${suffix}`;
+}
+
+function createBankWireDownloadFilename(now: Date): string {
+  const { month, day, hour, minute } = taipeiDateParts(now);
+  const timestamp = `${month}${day}${hour}${minute}`;
+  return `commeet整批付款_${timestamp}.txt`;
+}
 
 /**
  * 國泰網銀付款檔案轉換 API
  *
  * POST /api/bank-convert
  * Content-Type: multipart/form-data
- * Body: file（Commeet「付款資料」.xlsx/.xls）
+ * Body: file（Commeet「付款資料」.xlsx/.xls）；可選 excludedFormNos（JSON 陣列，表單編號不納入轉檔）
  *
  * Response: 轉換後的檔案（Binary，Big5 編碼）
  */
@@ -93,11 +144,33 @@ export default defineEventHandler(async (event) => {
       throw new Error('上傳的檔案是空檔案');
     }
 
+    const body = (event.node.req as any).body as
+      | { excludedFormNos?: string }
+      | undefined;
+    let excludedFormNos = new Set<string>();
+    if (body?.excludedFormNos && typeof body.excludedFormNos === 'string') {
+      try {
+        const parsed = JSON.parse(body.excludedFormNos) as unknown;
+        if (Array.isArray(parsed)) {
+          excludedFormNos = new Set(
+            parsed.map((x) => String(x).trim()).filter(Boolean)
+          );
+        }
+      } catch {
+        // 略過非法 JSON，視為不排除任何表單
+      }
+    }
+
     // 轉換檔案
     const converter = new BankConverterService();
     let outputBuffer: Buffer;
+    let ledgerRows: BankWireLedgerRow[];
     try {
-      outputBuffer = converter.convertExcelBuffer(inputBuffer);
+      const result = converter.convertExcelBuffer(inputBuffer, {
+        excludedFormNos,
+      });
+      outputBuffer = result.outputBuffer;
+      ledgerRows = result.ledgerRows;
     } catch (convertError: any) {
       apiLogger.error('檔案轉換失敗', convertError, {
         filename: uploadedFile.originalname,
@@ -115,29 +188,30 @@ export default defineEventHandler(async (event) => {
       throw new Error('轉換後的檔案為空，請檢查輸入檔案格式是否正確');
     }
 
+    const now = new Date();
+    const batchId = createBankWireBatchId(now);
+    try {
+      await insertBankWireExportLedger(
+        batchId,
+        uploadedFile.originalname,
+        ledgerRows
+      );
+    } catch (logErr: any) {
+      apiLogger.error('匯出紀錄寫入失敗', logErr, { batchId });
+      throw new Error(
+        `轉檔成功但紀錄寫入失敗，請勿重複匯款並聯絡管理員：${logErr?.message || '資料庫錯誤'}`
+      );
+    }
+
     apiLogger.info('銀行轉換成功', {
       filename: uploadedFile.originalname,
       inputSize: inputBuffer.length,
       outputSize: outputBuffer.length,
+      batchId,
+      ledgerCount: ledgerRows.length,
     });
 
-    // 生成檔名（台灣時間戳格式：MMDDHHRR，其中 RR 是分鐘）
-    // 使用 Intl.DateTimeFormat 取得台灣時間
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Taipei',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-    const parts = formatter.formatToParts(new Date());
-    const month = parts.find((p) => p.type === 'month')?.value || '01';
-    const day = parts.find((p) => p.type === 'day')?.value || '01';
-    const hour = parts.find((p) => p.type === 'hour')?.value || '00';
-    const minute = parts.find((p) => p.type === 'minute')?.value || '00';
-    const timestamp = `${month}${day}${hour}${minute}`;
-    const filename = `commeet整批付款_${timestamp}.txt`;
+    const filename = createBankWireDownloadFilename(now);
 
     // 設定回應標頭（下載檔案）
     setHeader(event, 'Content-Type', 'text/plain; charset=big5');

@@ -36,6 +36,8 @@ export class ErrorHandler {
     if (
       error.message?.includes('Excel 缺少必要欄位') ||
       error.message?.includes('無法從 Excel 產生') ||
+      error.message?.includes('已排除所有匯款列') ||
+      error.message?.includes('合併後金額與收款行代碼') ||
       error.message?.includes('Excel 工作表為空') ||
       error.message?.includes('無法讀取工作表')
     ) {
@@ -49,6 +51,13 @@ export class ErrorHandler {
     if (error.message?.includes('Excel 檔案解析失敗')) {
       throw createError({
         statusCode: HttpStatus.BAD_REQUEST,
+        statusMessage: error.message,
+      });
+    }
+
+    if (error.message?.includes('轉檔成功但紀錄寫入失敗')) {
+      throw createError({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         statusMessage: error.message,
       });
     }

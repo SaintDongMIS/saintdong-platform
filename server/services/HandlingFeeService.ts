@@ -3,28 +3,17 @@
  * 負責計算臨櫃匯款手續費，並處理特例公司
  */
 
+import { isSpecialPayeeCompany } from '../../utils/specialPayeeCompany';
+
 export interface HandlingFeeResult {
   fee: number; // 手續費金額
   allocationMethod: '15' | '13'; // 15=外加, 13=內扣
   finalAmount: number; // 最終金額（考慮手續費後）
 }
 
-/**
- * 特例公司列表（手續費30元，外加）
- */
-const SPECIAL_COMPANIES = [
-  '台灣中油股份有限公司',
-  '雲一有限公司',
-  /** Commeet / 網銀匯出可能被截斷的戶名 */
-  '雲一有限',
-];
-
-/**
- * 判斷是否為特例公司
- */
+/** 與國泰整批轉檔 convertLine 之特例戶名邏輯一致 */
 export function isSpecialCompany(payeeName: string): boolean {
-  if (!payeeName) return false;
-  return SPECIAL_COMPANIES.some((company) => payeeName.includes(company));
+  return isSpecialPayeeCompany(payeeName);
 }
 
 /**

@@ -1,9 +1,18 @@
-import * as XLSX from 'xlsx';
 import iconv from 'iconv-lite';
 import { BankConverterConfig } from '../constants/bankConverterConfig';
 import { BankConverterExcelConfig } from '../constants/bankConverterExcelConfig';
-import { isSpecialCompany } from './HandlingFeeService';
 import { logger } from './LoggerService';
+import {
+  extractCommeetWireExportRows,
+  readCommeetSheetMatrix,
+} from '../../utils/commeetBankExcelParse';
+import {
+  groupCommeetWireRowsByPayeeName,
+  normalizePayeeName,
+  sumAmount14Strings,
+} from '../../utils/bankWireMerge';
+import { isSpecialPayeeCompany } from '../../utils/specialPayeeCompany';
+import type { BankWireLedgerRow } from './BankWireExportLogService';
 
 interface ParsedBankLine {
   date: string;
@@ -23,6 +32,15 @@ interface ParsedBankLine {
 export class BankConverterService {
   private positions = BankConverterConfig.FIELD_POSITIONS;
   private lineLength = BankConverterConfig.LINE_LENGTH;
+
+  private static warnMergedGroupBank3Mismatch(params: {
+    formNo: string;
+    payeeName: string;
+    bank3: string;
+    firstBank3: string;
+  }) {
+    logger.warn('合併群組內收款行末三碼不一致，TXT 採用首列', params);
+  }
 
   /**
    * 產生固定寬度輸出行（361 bytes）
@@ -131,7 +149,7 @@ export class BankConverterService {
     // 判斷是否為特例公司，決定手續費分攤方式
     // 特例公司：台灣中油、雲一 → 手續費30元外加 → 強制使用15（外加）
     // 一般情況：一律使用13（內扣）
-    const isSpecial = isSpecialCompany(parsed.receiveNameText);
+    const isSpecial = isSpecialPayeeCompany(parsed.receiveNameText);
 
     // 如果是特例公司，強制使用15（外加）；否則一律使用13（內扣）
     const handlingFeeAllocation: string = isSpecial ? '15' : '13';
@@ -159,101 +177,66 @@ export class BankConverterService {
   /**
    * Commeet「付款資料」Excel → 與 convertFileBuffer 相同之 361 bytes + CRLF 輸出
    */
-  convertExcelBuffer(inputBuffer: Buffer): Buffer {
+  convertExcelBuffer(
+    inputBuffer: Buffer,
+    options?: { excludedFormNos?: Set<string> }
+  ): { outputBuffer: Buffer; ledgerRows: BankWireLedgerRow[] } {
     const cfg = BankConverterExcelConfig;
-    const workbook = XLSX.read(inputBuffer, { type: 'buffer' });
-    const sheetName =
-      workbook.SheetNames.includes(cfg.SHEET_NAME)
-        ? cfg.SHEET_NAME
-        : workbook.SheetNames[0];
-    if (!sheetName) {
-      throw new Error('Excel 檔案中沒有工作表');
-    }
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) {
-      throw new Error(`無法讀取工作表「${sheetName}」`);
+    const sheet = readCommeetSheetMatrix(inputBuffer, cfg);
+    if (!sheet.ok) {
+      throw new Error(sheet.error);
     }
 
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-      header: 1,
-      defval: '',
-      raw: true,
-    }) as unknown[][];
-
-    if (!jsonData.length) {
-      throw new Error('Excel 工作表為空');
+    const extracted = extractCommeetWireExportRows(sheet.jsonData, cfg);
+    if (!extracted.ok) {
+      throw new Error(extracted.error);
     }
 
-    const rawHeaders = jsonData[0] as unknown[];
-    const headers = rawHeaders.map((h) => BankConverterService.cleanExcelHeader(h));
-    const missing = cfg.REQUIRED_HEADERS.filter((req) => !headers.includes(req));
-    if (missing.length > 0) {
-      throw new Error(`Excel 缺少必要欄位：${missing.join('、')}`);
+    const excluded = options?.excludedFormNos ?? new Set<string>();
+    let skippedExcluded = 0;
+    for (const row of extracted.rows) {
+      if (excluded.has(row.formNo)) skippedExcluded++;
     }
 
-    const idxMethod = headers.indexOf(cfg.HEADER.PAYMENT_METHOD);
-    const idxPayeeName = headers.indexOf(cfg.HEADER.PAYEE_NAME);
-    const idxBankCode = headers.indexOf(cfg.HEADER.BANK_CODE);
-    const idxAccount = headers.indexOf(cfg.HEADER.ACCOUNT);
-    const idxAmount = headers.indexOf(cfg.HEADER.AMOUNT);
-    const idxFormNo = headers.indexOf(cfg.HEADER.FORM_NO);
-
-    const dataRows = jsonData.slice(1);
+    const groups = groupCommeetWireRowsByPayeeName(extracted.rows, excluded);
+    const ledgerRows: BankWireLedgerRow[] = [];
     const outLines: Buffer[] = [];
-    let wireCount = 0;
-    let skippedNonWire = 0;
-    let skippedInvalid = 0;
 
-    for (let i = 0; i < dataRows.length; i++) {
-      const row = dataRows[i];
-      if (!Array.isArray(row)) continue;
-      if (BankConverterService.isExcelRowEmpty(row)) continue;
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i]!;
+      const mergedLineIndex = i + 1;
+      const first = group[0]!;
+      const amount14 = sumAmount14Strings(group.map((g) => g.amount14));
 
-      const method = BankConverterService.cellString(row[idxMethod]);
-      if (method !== cfg.PAYMENT_METHOD_WIRE) {
-        skippedNonWire++;
-        continue;
-      }
-
-      const payeeName = BankConverterService.cellString(row[idxPayeeName]).trim();
-      const bankCodeRaw = row[idxBankCode];
-      const accountRaw = row[idxAccount];
-      const amountCell = row[idxAmount];
-
-      const bankDigits = BankConverterService.bankCodeDigitsOnly(bankCodeRaw);
-      const accountDigits = BankConverterService.accountDigitsPreserve(accountRaw);
-      if (!payeeName || !bankDigits || !accountDigits || amountCell === '' || amountCell == null) {
-        skippedInvalid++;
-        if (skippedInvalid <= 3) {
-          logger.debug('Excel 列略過（匯款但欄位不完整）', {
-            rowIndex: i + 2,
-            formNo: idxFormNo >= 0 ? BankConverterService.cellString(row[idxFormNo]) : '',
+      for (const r of group) {
+        if (r.payeeBank3 !== first.payeeBank3) {
+          BankConverterService.warnMergedGroupBank3Mismatch({
+            formNo: r.formNo,
+            payeeName: r.payeeName,
+            bank3: r.payeeBank3,
+            firstBank3: first.payeeBank3,
           });
         }
-        continue;
-      }
-
-      const payeeBank3 = bankDigits.padStart(3, '0').slice(-3);
-      let amount14: string;
-      try {
-        amount14 = BankConverterService.parseAmountToAmount14(amountCell);
-      } catch (e: any) {
-        skippedInvalid++;
-        logger.debug('Excel 金額無法解析', {
-          rowIndex: i + 2,
-          message: e?.message,
+        ledgerRows.push({
+          mergedLineIndex,
+          payeeName: normalizePayeeName(r.payeeName),
+          payeeAccountDigits: r.accountDigits,
+          bankCodeDigits: r.bankDigits,
+          formNo: r.formNo,
+          amountCents: parseInt(r.amount14, 10) || 0,
         });
-        continue;
       }
 
+      const payeeBank3 = first.payeeBank3;
       const amount17 = amount14 + payeeBank3;
       if (amount17.length !== 17) {
-        skippedInvalid++;
-        continue;
+        throw new Error(
+          `合併後金額與收款行代碼組合異常（${first.payeeName}），請檢查金額或銀行代碼。`
+        );
       }
 
       const receiveNameBytes = BankConverterService.encodePayeeNameBig5MaxBytes(
-        payeeName,
+        first.payeeName,
         BankConverterConfig.FIELD_POSITIONS.PAYEE_NAME.length
       );
 
@@ -264,97 +247,44 @@ export class BankConverterService {
         payerAccountDigits: cfg.PAYER_ACCOUNT_DIGITS.replace(/\D/g, ''),
         serial: cfg.SERIAL_FIXED,
         amount17,
-        payeeAccountDigits: accountDigits.slice(0, 16),
+        payeeAccountDigits: first.accountDigits.slice(0, 16),
         receiveNameBytes,
-        receiveNameText: payeeName,
+        receiveNameText: normalizePayeeName(first.payeeName),
       };
 
       outLines.push(this.convertLine(parsed));
-      wireCount++;
     }
 
     logger.info('Excel 轉檔統計', {
-      totalDataRows: dataRows.length,
-      outputLines: wireCount,
-      skippedNonWire,
-      skippedInvalid,
+      totalDataRows: extracted.totalDataRows,
+      validWireRows: extracted.rows.length,
+      mergeGroups: groups.length,
+      outputLines: outLines.length,
+      skippedNonWire: extracted.skippedNonWire,
+      skippedInvalid: extracted.skippedInvalid,
+      skippedExcluded,
     });
 
     if (outLines.length === 0) {
+      if (
+        extracted.rows.length > 0 &&
+        skippedExcluded === extracted.rows.length
+      ) {
+        throw new Error(
+          '已排除所有匯款列，請至少保留一筆轉檔，或取消勾選「不轉檔」。'
+        );
+      }
       const msg =
-        `無法從 Excel 產生任何匯款列：資料列 ${dataRows.length} 筆；非匯款略過 ${skippedNonWire} 筆；匯款欄位不完整或金額錯誤 ${skippedInvalid} 筆。請確認「付款方式」為「${cfg.PAYMENT_METHOD_WIRE}」且欄位齊全。`;
+        `無法從 Excel 產生任何匯款列：資料列 ${extracted.totalDataRows} 筆；非匯款略過 ${extracted.skippedNonWire} 筆；匯款欄位不完整或金額錯誤 ${extracted.skippedInvalid} 筆。請確認「付款方式」為「${cfg.PAYMENT_METHOD_WIRE}」且欄位齊全。`;
       logger.error(msg);
       throw new Error(msg);
     }
 
     const crlf = Buffer.from([0x0d, 0x0a]);
-    return Buffer.concat(outLines.flatMap((l) => [l, crlf]));
-  }
-
-  private static cleanExcelHeader(value: unknown): string {
-    if (value == null || value === '') return '';
-    return String(value).trim().replace(/^\*/, '');
-  }
-
-  private static isExcelRowEmpty(row: unknown[]): boolean {
-    if (!row || !row.length) return true;
-    return row.every(
-      (c) =>
-        c === null ||
-        c === undefined ||
-        c === '' ||
-        (typeof c === 'string' && c.trim() === '')
+    const outputBuffer = Buffer.concat(
+      outLines.flatMap((l) => [l, crlf])
     );
-  }
-
-  private static cellString(value: unknown): string {
-    if (value == null || value === undefined) return '';
-    return String(value).trim();
-  }
-
-  /** 銀行代碼：只保留數字，去空白 */
-  private static bankCodeDigitsOnly(value: unknown): string {
-    return BankConverterService.cellString(value).replace(/\D/g, '');
-  }
-
-  /**
-   * 帳號：盡量保留前導零。若儲存格為數字型別，無法還原 Excel 文字型帳號，仍以數字字串表示。
-   */
-  private static accountDigitsPreserve(value: unknown): string {
-    if (value == null || value === undefined) return '';
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      if (Number.isInteger(value)) return String(value);
-      return String(Math.trunc(value));
-    }
-    return String(value).replace(/[^\d]/g, '');
-  }
-
-  /**
-   * 「付款金額（本幣）」→ 14 位金額字串（分，無小數點）。
-   * 支援：字串 "174,000.00"；或數字 174000（視為元，*100）。
-   */
-  private static parseAmountToAmount14(cell: unknown): string {
-    if (cell === null || cell === undefined || cell === '') {
-      throw new Error('金額為空');
-    }
-    if (typeof cell === 'number' && Number.isFinite(cell)) {
-      const cents = Math.round(cell * 100);
-      if (cents < 0) throw new Error('金額不可為負');
-      return String(cents).padStart(14, '0');
-    }
-    const s = String(cell).trim().replace(/,/g, '');
-    const m = s.match(/^(\d+)\.(\d{2})$/);
-    if (m && m[1] && m[2]) {
-      const cents = parseInt(m[1] + m[2], 10);
-      if (!Number.isFinite(cents) || cents < 0) throw new Error('金額格式錯誤');
-      return String(cents).padStart(14, '0');
-    }
-    if (/^\d+$/.test(s)) {
-      const yuan = parseInt(s, 10);
-      const cents = yuan * 100;
-      return String(cents).padStart(14, '0');
-    }
-    throw new Error(`無法解析金額：${s}`);
+    return { outputBuffer, ledgerRows };
   }
 
   /**
