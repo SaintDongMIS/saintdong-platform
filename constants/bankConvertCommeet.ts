@@ -7,7 +7,7 @@ export const BankConvertCommeetConfig = {
 
   REQUIRED_HEADERS: [
     '表單編號',
-    '付款對象名稱',
+    '戶名',
     '銀行代碼',
     '帳戶號碼',
     '付款金額（本幣）',
@@ -23,7 +23,7 @@ export const BankConvertCommeetConfig = {
 
   HEADER: {
     FORM_NO: '表單編號',
-    PAYEE_NAME: '付款對象名稱',
+    PAYEE_NAME: '戶名',
     BANK_CODE: '銀行代碼',
     ACCOUNT: '帳戶號碼',
     AMOUNT: '付款金額（本幣）',

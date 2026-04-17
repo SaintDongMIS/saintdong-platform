@@ -116,7 +116,7 @@ API 端點定義在 `server/api/` 目錄下，例如：
 ### 核心服務
 
 - **檔案上傳處理**: 驗證並解析 Excel 檔案。
-- **國泰整批付款轉檔** (`BankConverterService` + `server/constants/bankConverterConfig.ts` / `bankConverterExcelConfig.ts`): 將 Commeet「付款資料」工作表對應為國泰上傳格式；輸出每行 361 bytes，手續費 13/15 仍由 `HandlingFeeService.isSpecialCompany`（依 Excel `付款對象名稱`）決定。
+- **國泰整批付款轉檔** (`BankConverterService` + `server/constants/bankConverterConfig.ts` / `bankConverterExcelConfig.ts`): 將 Commeet「付款資料」工作表對應為國泰上傳格式；輸出每行 361 bytes，手續費 13/15 仍由 `HandlingFeeService.isSpecialCompany`（依 Excel `戶名`）決定。
 - **資料庫操作**: 透過 `DatabaseService` 執行 SQL 操作。
 - **資料表定義**: 透過 `TableDefinitionService` 統一管理資料表 Schema。
 - **錯誤處理**: 統一的錯誤回應機制。
