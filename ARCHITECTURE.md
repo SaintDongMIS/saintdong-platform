@@ -2,7 +2,7 @@
 
 ## 專案概述
 
-建立企業內部平台，服務 MIS、財務、管理部門。採用 Nuxt.js 3 + Tailwind CSS 快速開發前端，Node.js + TypeScript 建構後端 API。部署至 Synology NAS Docker 環境，直接連接內網 SQL Server 資料庫。遵循 Clean Code 原則，保持專案結構清晰，避免複雜化。優先實現財務部門 Excel 上傳功能，後續擴展其他部門需求。
+建立企業內部平台，服務 MIS、財務、管理部門。採用 Nuxt.js 4 + Tailwind CSS 快速開發前端，並使用 Nuxt 內建 Nitro (Node.js + TypeScript) 提供後端 API。部署至 Synology NAS Docker 環境，直接連接內網 SQL Server 資料庫。遵循 Clean Code 原則，保持專案結構清晰，避免複雜化。優先實現財務部門 Excel 上傳功能，後續擴展其他部門需求。
 
 ## 整體架構
 
@@ -39,7 +39,7 @@
 
 ### 專案結構
 
-本專案採用 Nuxt.js 3 的整合式架構，前端與後端 API 都在同一個專案中開發，簡化了開發與部署流程。
+本專案採用 Nuxt 的整合式架構（同一專案內同時包含前端與後端 API），簡化開發與部署流程。
 
 ```
 saintdong-platform/
@@ -55,7 +55,7 @@ saintdong-platform/
 └── deploy.sh          # NAS 部署腳本
 ```
 
-## 前端架構 (Nuxt.js 3)
+## 前端架構 (Nuxt.js)
 
 ### 核心功能
 
@@ -72,15 +72,14 @@ saintdong-platform/
 
 ### 檔案結構
 
-```
-frontend/
-├── components/        # 共用組件
-├── pages/            # 頁面路由
-├── layouts/          # 佈局模板
-├── composables/      # 組合式函數
-├── utils/            # 工具函數
-└── types/            # 類型定義
-```
+本專案採 Nuxt 的標準目錄（非獨立 `frontend/` 專案）：
+
+- `components/`: 共用組件
+- `pages/`: 頁面路由
+- `layouts/`: 佈局模板
+- `composables/`: 組合式函數
+- `utils/`: 前端工具函數與資料處理
+- `server/`: 後端 API（Nitro）
 
 ### 前端檔案驗證機制
 
@@ -98,7 +97,7 @@ frontend/
 - **部門規則配置 (`utils/departmentConfig.ts`)**:
   - 建立了一個前端專用的設定檔，集中管理各部門的驗證規則，與後端配置分離，保持前端邏輯的獨立性。
 
-## 後端架構 (Nuxt 3 Nitro Server)
+## 後端架構 (Nuxt Nitro Server)
 
 後端 API 基於 Nuxt 3 內建的 Nitro 伺服器引擎，採用檔案系統路由，開發體驗與前端保持一致。
 
@@ -108,7 +107,8 @@ API 端點定義在 `server/api/` 目錄下，例如：
 
 - `POST /api/upload/finance`: 處理財務部檔案上傳
 - `POST /api/upload/road-construction`: 處理道路施工部檔案上傳
-- `POST /api/bank-convert`: 國泰整批付款轉檔（Commeet 付款資料 Excel `.xlsx`/`.xls` → 固定寬度 361 bytes + CRLF 之 `.txt`，Big5）。手動測試步驟見 `docs/BANK_CONVERT_TESTING.md`。
+- `POST /api/bank-convert/analyze`: 國泰整批付款轉檔「分析」（回傳 JSON，比對收款帳號清單與相似戶名候選）。
+- `POST /api/bank-convert`: 國泰整批付款轉檔（Commeet 付款資料 Excel `.xlsx`/`.xls` → 固定寬度 361 bytes + CRLF 之 `.txt`，Big5）。可選帶 `resolutions`（逐列決議：使用清單帳號或 Excel），以確保匯出內容符合使用者在前端的選擇。手動測試步驟見 `docs/BANK_CONVERT_TESTING.md`。
 - `GET /api/finance/reports`: 取得財務報表資料
 
 **注意**: `create-table` 和 `update-table` 相關的 API 端點已被新的資料庫遷移流程取代，應視為已棄用。
@@ -117,6 +117,7 @@ API 端點定義在 `server/api/` 目錄下，例如：
 
 - **檔案上傳處理**: 驗證並解析 Excel 檔案。
 - **國泰整批付款轉檔** (`BankConverterService` + `server/constants/bankConverterConfig.ts` / `bankConverterExcelConfig.ts`): 將 Commeet「付款資料」工作表對應為國泰上傳格式；輸出每行 361 bytes，手續費 13/15 仍由 `HandlingFeeService.isSpecialCompany`（依 Excel `戶名`）決定。
+- **收款帳號清單比對（網銀轉檔）**: 透過 `Payee_Accounts`（「收款帳號清單」）比對收款人資訊：先依帳號（必要時再加銀行代碼縮窄）找清單列；再用 Fuse.js 依戶名提供相似候選，供使用者在前端做決議。當清單無此帳號但有相似戶名時，分析狀態會標為 `name_hint_only`，代表僅供參考且預設使用 Excel。
 - **資料庫操作**: 透過 `DatabaseService` 執行 SQL 操作。
 - **資料表定義**: 透過 `TableDefinitionService` 統一管理資料表 Schema。
 - **錯誤處理**: 統一的錯誤回應機制。
@@ -359,7 +360,7 @@ npx knex migrate:rollback
 ### 技術規範
 
 - **前端**: Tailwind CSS + 組件化開發 + 響應式設計
-- **後端**: Express/Fastify + RESTful API + 錯誤處理
+- **後端**: Nuxt Nitro + 檔案系統路由 API + 錯誤處理
 - **共用模組**: 類型定義 + 工具函數 + 常數定義
 
 ### TypeScript 規範

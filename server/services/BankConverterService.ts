@@ -21,6 +21,7 @@ interface ParsedBankLine {
   payerAccountDigits: string;
   serial: string;
   amount17: string;
+  payeeBankCode7: string;
   payeeAccountDigits: string;
   receiveNameBytes: Buffer;
   receiveNameText: string; // 新增：收款人戶名文字（用於手續費計算）
@@ -33,13 +34,13 @@ export class BankConverterService {
   private positions = BankConverterConfig.FIELD_POSITIONS;
   private lineLength = BankConverterConfig.LINE_LENGTH;
 
-  private static warnMergedGroupBank3Mismatch(params: {
+  private static warnMergedGroupPayeeBankMismatch(params: {
     formNo: string;
     payeeName: string;
-    bank3: string;
-    firstBank3: string;
+    payeeBankCode7: string;
+    firstPayeeBankCode7: string;
   }) {
-    logger.warn('合併群組內收款行末三碼不一致，TXT 採用首列', params);
+    logger.warn('合併群組內收款清算七碼不一致，TXT 採用首列', params);
   }
 
   /**
@@ -112,9 +113,11 @@ export class BankConverterService {
     const originalAmount14 = parsed.amount17.slice(0, 14).padStart(14, '0');
     out.write(originalAmount14, pos.AMOUNT.start, pos.AMOUNT.length, 'ascii');
 
-    // 收款行代碼 [151..157]：amount17 後3位 + 0000（例：0130000）
-    const payeeBank3 = parsed.amount17.slice(14, 17);
-    const payeeBankCode = (payeeBank3 + '0000').slice(0, 7);
+    // 收款行代碼 [151..157]：7碼（金融機構3 + 分行4）
+    const payeeBankCode = parsed.payeeBankCode7
+      .replace(/\D/g, '')
+      .padStart(7, '0')
+      .slice(0, 7);
     out.write(
       payeeBankCode,
       pos.PAYEE_BANK_CODE.start,
@@ -192,6 +195,22 @@ export class BankConverterService {
       throw new Error(extracted.error);
     }
 
+    return this.convertFromExtractedWireRows(extracted, options);
+  }
+
+  /**
+   * 已解析之匯款列（可於套用清單／使用者決議後呼叫）
+   */
+  convertFromExtractedWireRows(
+    extracted: {
+      rows: import('../../utils/commeetBankExcelParse').CommeetWireExportRow[];
+      skippedNonWire: number;
+      skippedInvalid: number;
+      totalDataRows: number;
+    },
+    options?: { excludedFormNos?: Set<string> }
+  ): { outputBuffer: Buffer; ledgerRows: BankWireLedgerRow[] } {
+    const cfg = BankConverterExcelConfig;
     const excluded = options?.excludedFormNos ?? new Set<string>();
     let skippedExcluded = 0;
     for (const row of extracted.rows) {
@@ -209,12 +228,12 @@ export class BankConverterService {
       const amount14 = sumAmount14Strings(group.map((g) => g.amount14));
 
       for (const r of group) {
-        if (r.payeeBank3 !== first.payeeBank3) {
-          BankConverterService.warnMergedGroupBank3Mismatch({
+        if (r.payeeBankCode7 !== first.payeeBankCode7) {
+          BankConverterService.warnMergedGroupPayeeBankMismatch({
             formNo: r.formNo,
             payeeName: r.payeeName,
-            bank3: r.payeeBank3,
-            firstBank3: first.payeeBank3,
+            payeeBankCode7: r.payeeBankCode7,
+            firstPayeeBankCode7: first.payeeBankCode7,
           });
         }
         ledgerRows.push({
@@ -247,6 +266,7 @@ export class BankConverterService {
         payerAccountDigits: cfg.PAYER_ACCOUNT_DIGITS.replace(/\D/g, ''),
         serial: cfg.SERIAL_FIXED,
         amount17,
+        payeeBankCode7: first.payeeBankCode7,
         payeeAccountDigits: first.accountDigits.slice(0, 16),
         receiveNameBytes,
         receiveNameText: normalizePayeeName(first.payeeName),

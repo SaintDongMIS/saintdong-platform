@@ -25,6 +25,7 @@ export const BankConvertCommeetConfig = {
     FORM_NO: '表單編號',
     PAYEE_NAME: '戶名',
     BANK_CODE: '銀行代碼',
+    BRANCH_CODE: '分行代碼',
     ACCOUNT: '帳戶號碼',
     AMOUNT: '付款金額（本幣）',
     PAYMENT_METHOD: '付款方式',

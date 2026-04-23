@@ -136,6 +136,41 @@
       @clear="onClearFile"
     />
 
+    <!-- 收款帳號清單比對 -->
+    <div
+      v-if="upload.selectedFile.value && analysisLoading"
+      class="mt-4 flex items-center justify-center gap-2 text-sm text-gray-600"
+    >
+      <svg
+        class="animate-spin h-5 w-5 text-green-600"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          class="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          stroke-width="4"
+        />
+        <path
+          class="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+        />
+      </svg>
+      正在比對收款帳號清單（Payee_Accounts）…
+    </div>
+    <div
+      v-if="analysisError"
+      class="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-900"
+      role="alert"
+    >
+      {{ analysisError }}
+    </div>
+
     <!-- 解析狀態 -->
     <div
       v-if="upload.selectedFile.value && isParsingPreview"
@@ -204,6 +239,53 @@
       >
         檔內曾匯出過 {{ previouslyExportedInFileCount }} 筆（預設不轉）
       </span>
+    </div>
+
+    <!-- 收款資料對齊狀態（整批） -->
+    <div
+      v-if="previewRows.length > 0 && !parseError"
+      class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+    >
+      <div class="flex flex-wrap items-center gap-2 text-xs text-slate-700">
+        <span class="font-medium">收款資料對齊：</span>
+        <span
+          class="inline-flex items-center rounded-full bg-emerald-100 text-emerald-900 px-2 py-0.5"
+        >
+          已用清單帳號 {{ statusCounts.green }}
+        </span>
+        <span
+          class="inline-flex items-center rounded-full bg-sky-100 text-sky-900 px-2 py-0.5"
+        >
+          待選擇 {{ statusCounts.blue }}
+        </span>
+        <span
+          class="inline-flex items-center rounded-full bg-amber-100 text-amber-900 px-2 py-0.5"
+        >
+          需修正 {{ statusCounts.amber }}
+        </span>
+        <span
+          class="inline-flex items-center rounded-full bg-rose-100 text-rose-900 px-2 py-0.5"
+        >
+          需手填 {{ statusCounts.red }}
+        </span>
+      </div>
+      <div v-if="!payeeResolutionOk" class="mt-1 text-xs text-slate-600">
+        尚有未完成之列，請依紅/橘提示修正或手填後，才可按下「轉換檔案」。
+      </div>
+    </div>
+
+    <!-- 清單無此帳號：整批提示（避免每列重複長文） -->
+    <div
+      v-if="listAccountMissingRowCount > 0 && previewRows.length > 0 && !parseError"
+      class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      role="note"
+    >
+      <div class="font-medium">
+        清單無此帳號：{{ listAccountMissingRowCount }} 筆（相似戶名僅供參考，預設使用 Excel）
+      </div>
+      <div class="mt-1 text-[13px] leading-snug">
+        {{ LIST_ACCOUNT_MISSING_FUSE_HINT }}
+      </div>
     </div>
 
     <!-- 合併後預覽（戶名相同 → 一筆網銀列，合併序號 1、2、3…） -->
@@ -298,6 +380,12 @@
                 序號
               </th>
               <th
+                class="px-2 py-2.5 font-semibold text-emerald-900 min-w-[14rem]"
+                scope="col"
+              >
+                收款資料對齊
+              </th>
+              <th
                 class="px-2 py-2.5 font-semibold text-emerald-900 min-w-[10rem]"
                 scope="col"
               >
@@ -368,6 +456,124 @@
                 />
               </td>
               <td class="px-2 py-2 text-gray-600 tabular-nums">{{ row.serial }}</td>
+              <td class="px-2 py-2 align-top text-xs text-gray-800">
+                <template
+                  v-if="analysisRowForSerial(row.serial) && resolutionDraft[row.serial - 1]"
+                >
+                  <div class="space-y-1.5">
+                    <div class="flex items-center gap-2">
+                      <span
+                        v-if="rowStatusPill(row.serial - 1).kind === 'green'"
+                        class="inline-flex items-center rounded-full bg-emerald-100 text-emerald-900 px-2 py-0.5 text-[11px] font-medium"
+                      >
+                        已用清單
+                      </span>
+                      <span
+                        v-else-if="rowStatusPill(row.serial - 1).kind === 'blue'"
+                        class="inline-flex items-center rounded-full bg-sky-100 text-sky-900 px-2 py-0.5 text-[11px] font-medium"
+                      >
+                        需選擇
+                      </span>
+                      <span
+                        v-else-if="rowStatusPill(row.serial - 1).kind === 'amber'"
+                        class="inline-flex items-center rounded-full bg-amber-100 text-amber-900 px-2 py-0.5 text-[11px] font-medium"
+                      >
+                        {{ amberStatusTag(row.serial - 1) }}
+                      </span>
+                      <span
+                        v-else-if="rowStatusPill(row.serial - 1).kind === 'red'"
+                        class="inline-flex items-center rounded-full bg-rose-100 text-rose-900 px-2 py-0.5 text-[11px] font-medium"
+                      >
+                        需手填
+                      </span>
+                      <span
+                        v-if="rowStatusPill(row.serial - 1).label"
+                        class="text-[11px] text-gray-600"
+                      >
+                        {{ rowStatusPill(row.serial - 1).label }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="analysisRowForSerial(row.serial)?.validationError"
+                      class="text-amber-800 font-medium"
+                    >
+                      {{ analysisRowForSerial(row.serial)?.validationError }}
+                    </div>
+                    <div class="text-[11px] text-gray-600">
+                      {{ lookupStatusLabel(analysisRowForSerial(row.serial)!.lookupStatus) }}
+                    </div>
+                    <div class="flex flex-col gap-1">
+                      <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          v-model="resolutionDraft[row.serial - 1]!.kind"
+                          type="radio"
+                          value="master"
+                          class="h-3.5 w-3.5 text-green-600"
+                          :disabled="!canPickMaster(row.serial - 1)"
+                        />
+                        <span>使用清單帳號（已建檔）</span>
+                      </label>
+                      <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          v-model="resolutionDraft[row.serial - 1]!.kind"
+                          type="radio"
+                          value="excel"
+                          class="h-3.5 w-3.5 text-green-600"
+                        />
+                        <span>使用 Excel 上的資料（可手填分行）</span>
+                      </label>
+                    </div>
+                    <select
+                      v-if="resolutionDraft[row.serial - 1]?.kind === 'master'"
+                      v-model="resolutionDraft[row.serial - 1]!.payeeAccountId"
+                      class="mt-1 w-full max-w-[13rem] text-xs border border-gray-300 rounded px-1 py-1"
+                    >
+                      <option
+                        v-for="c in masterChoicesForRow(row.serial - 1)"
+                        :key="c.id"
+                        :value="c.id"
+                      >
+                        {{ c.bank_code }}-{{ c.branch_code }} {{ c.account_no }}
+                        {{ c.name?.slice(0, 12) }}{{ (c.name?.length ?? 0) > 12 ? '…' : '' }}
+                      </option>
+                    </select>
+                    <button
+                      v-if="
+                        resolutionDraft[row.serial - 1]?.kind === 'master' &&
+                        isSingleAccountMatchRow(row.serial - 1) &&
+                        hasOtherCandidates(row.serial - 1)
+                      "
+                      type="button"
+                      class="mt-1 text-[11px] font-medium text-sky-700 hover:text-sky-900 hover:underline"
+                      @click="
+                        showOtherCandidates[row.serial - 1] = !showOtherCandidates[row.serial - 1]
+                      "
+                    >
+                      {{
+                        showOtherCandidates[row.serial - 1]
+                          ? '收起其他相似戶名'
+                          : '顯示清單中其他相似戶名'
+                      }}
+                    </button>
+                    <input
+                      v-if="resolutionDraft[row.serial - 1]?.kind === 'excel'"
+                      v-model="resolutionDraft[row.serial - 1]!.manualBranch4"
+                      type="text"
+                      inputmode="numeric"
+                      maxlength="4"
+                      placeholder="分行四位數"
+                      class="mt-1 w-full max-w-[7rem] text-xs font-mono border border-gray-300 rounded px-1 py-1"
+                    />
+                    <div
+                      v-if="rowStatusPill(row.serial - 1).kind === 'red'"
+                      class="text-[11px] text-rose-800"
+                    >
+                      清單中找不到對應資料，請使用 Excel 上的資料並手填必要欄位（例如分行四位數）。
+                    </div>
+                  </div>
+                </template>
+                <span v-else class="text-gray-400">—</span>
+              </td>
               <td class="px-2 py-2 font-mono text-xs text-gray-800">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span>{{ row.formNo || '—' }}</span>
@@ -461,6 +667,7 @@ import {
   formatTwdAmountFromAmount14,
   readCommeetSheetMatrix,
 } from '~/utils/commeetBankExcelParse';
+import { validateBranchForWireRow } from '~/utils/bankConvertPayeeValidation';
 import { downloadBlob, extractFilenameFromHeader } from '~/utils/fileUtils';
 import { handlingFeeAllocationForPayee } from '~/utils/specialPayeeCompany';
 
@@ -468,6 +675,46 @@ const { success, error, warning } = useToast();
 
 const API_EXPORTED_FORM_NOS = '/api/bank-wire-export-log/exported-form-nos';
 const API_HISTORY = '/api/bank-wire-export-log?limit=150';
+const API_ANALYZE = '/api/bank-convert/analyze';
+
+/** 清單無此帳號、僅相似戶名時的完整說明（整批只顯示一次） */
+const LIST_ACCOUNT_MISSING_FUSE_HINT =
+  '收款帳號清單沒有此帳號。下方若選「使用清單帳號」，下拉選單中的戶名僅為相似參考，不代表與本筆收款帳號相同。若不確定，請維持「使用 Excel 上的資料」。';
+
+interface PayeeFuseRecordDto {
+  id: string;
+  name: string;
+  bank_code: string;
+  branch_code: string;
+  account_no: string;
+}
+
+interface BankWireAnalyzeRowDto {
+  rowIndex: number;
+  formNo: string;
+  validationError: string | null;
+  lookupStatus: string;
+  /** 清單依帳號命中筆數；0 且待選擇時預設用 Excel */
+  accountMatchCount?: number;
+  excel: {
+    payeeName: string;
+    bankDigits: string;
+    accountDigits: string;
+    branchDigits4: string;
+    receivingBankDisplay: string;
+    payeeBankCode7: string;
+  };
+  suggestedMaster: PayeeFuseRecordDto | null;
+  candidates: PayeeFuseRecordDto[];
+  excelVsMasterMismatch: boolean;
+}
+
+interface WireResolutionUi {
+  rowIndex: number;
+  kind: 'master' | 'excel';
+  payeeAccountId: string;
+  manualBranch4: string;
+}
 
 interface PreviewRowUi {
   formNo: string;
@@ -483,6 +730,8 @@ interface PreviewRowUi {
   excludeFromExport: boolean;
   /** 曾寫入 BankWireExport_Log（預設不轉檔，仍可取消勾選） */
   previouslyExported: boolean;
+  bankDigits: string;
+  branchCellRaw?: unknown;
 }
 
 interface MergedPreviewGroup {
@@ -541,6 +790,11 @@ const parseMeta = ref<{
   skippedInvalid: number;
 } | null>(null);
 const previewRows = ref<PreviewRowUi[]>([]);
+const analysisRows = ref<BankWireAnalyzeRowDto[]>([]);
+const analysisLoading = ref(false);
+const analysisError = ref('');
+const resolutionDraft = ref<Record<number, WireResolutionUi>>({});
+const showOtherCandidates = ref<Record<number, boolean>>({});
 const exportedFormNoSet = ref<Set<string>>(new Set());
 const historyRows = ref<ExportLogRow[]>([]);
 const historyLoading = ref(false);
@@ -577,6 +831,246 @@ function clearPreview() {
   parseError.value = '';
   parseMeta.value = null;
   previewRows.value = [];
+  analysisRows.value = [];
+  analysisError.value = '';
+  analysisLoading.value = false;
+  resolutionDraft.value = {};
+  showOtherCandidates.value = {};
+}
+
+function lookupStatusLabel(status: string): string {
+  switch (status) {
+    case 'branch_invalid':
+      return '分行與清單不一致';
+    case 'excel_only':
+      return '清單無此帳號—使用 Excel 資料';
+    case 'name_hint_only':
+      return '清單無此帳號—相似戶名僅供參考';
+    case 'suggest_master':
+      return '清單帳號與 Excel 一致';
+    case 'confirm_master':
+      return '清單與 Excel 七碼不同—請確認';
+    case 'choose_master':
+      return '請選擇清單列或改用 Excel';
+    default:
+      return status;
+  }
+}
+
+function analysisRowForSerial(serial: number): BankWireAnalyzeRowDto | null {
+  const i = serial - 1;
+  return analysisRows.value[i] ?? null;
+}
+
+function isSingleAccountMatchRow(rowIndex: number): boolean {
+  const ar = analysisRows.value[rowIndex];
+  if (!ar) return false;
+  return ar.lookupStatus === 'suggest_master' || ar.lookupStatus === 'confirm_master';
+}
+
+function isListAccountMissingRow(rowIndex: number): boolean {
+  const ar = analysisRows.value[rowIndex];
+  return !!(
+    ar &&
+    (ar.lookupStatus === 'name_hint_only' ||
+      (ar.lookupStatus === 'choose_master' && (ar.accountMatchCount ?? 0) === 0))
+  );
+}
+
+const listAccountMissingRowCount = computed(() => {
+  let n = 0;
+  for (let i = 0; i < previewRows.value.length; i++) {
+    const pr = previewRows.value[i];
+    if (!pr || pr.excludeFromExport) continue;
+    if (isListAccountMissingRow(i)) n++;
+  }
+  return n;
+});
+
+function hasOtherCandidates(rowIndex: number): boolean {
+  const ar = analysisRows.value[rowIndex];
+  if (!ar) return false;
+  const suggestedId = ar.suggestedMaster?.id ? String(ar.suggestedMaster.id) : '';
+  const others = (ar.candidates ?? []).filter((c) => String(c.id) !== suggestedId);
+  return others.length > 0;
+}
+
+function masterChoicesForRow(rowIndex: number): PayeeFuseRecordDto[] {
+  const ar = analysisRows.value[rowIndex];
+  if (!ar) return [];
+
+  // 帳號唯一命中（suggest/confirm）時：預設只顯示該筆清單列，避免相似戶名誤選
+  if (isSingleAccountMatchRow(rowIndex) && !showOtherCandidates.value[rowIndex]) {
+    return ar.suggestedMaster ? [ar.suggestedMaster] : [];
+  }
+
+  const list: PayeeFuseRecordDto[] = [];
+  const seen = new Set<string>();
+  const push = (x: PayeeFuseRecordDto | null | undefined) => {
+    if (!x) return;
+    const id = String(x.id);
+    if (seen.has(id)) return;
+    seen.add(id);
+    list.push(x);
+  };
+  push(ar.suggestedMaster);
+  for (const c of ar.candidates) push(c);
+  return list;
+}
+
+function canPickMaster(rowIndex: number): boolean {
+  return masterChoicesForRow(rowIndex).length > 0;
+}
+
+/** 琥珀色圓角標籤用簡短字（與詳細 label 區隔） */
+function amberStatusTag(rowIndex: number): string {
+  const p = rowStatusPill(rowIndex);
+  if (p.kind !== 'amber') return '';
+  if (isListAccountMissingRow(rowIndex) && resolutionDraft.value[rowIndex]?.kind === 'excel')
+    return '請核對';
+  return '需修正';
+}
+
+function rowStatusPill(
+  rowIndex: number
+): { kind: 'green' | 'blue' | 'amber' | 'red' | 'none'; label: string } {
+  const pr = previewRows.value[rowIndex];
+  if (!pr) return { kind: 'none', label: '' };
+  if (pr.excludeFromExport) return { kind: 'none', label: '不轉檔' };
+
+  const ar = analysisRows.value[rowIndex];
+  const d = resolutionDraft.value[rowIndex];
+  if (!ar || !d) return { kind: 'none', label: '—' };
+
+  // 需修正：驗證錯誤（包含非 013 分行規則）
+  const excelBranchRaw =
+    d.kind === 'excel' && d.manualBranch4?.trim()
+      ? d.manualBranch4.trim()
+      : pr.branchCellRaw;
+  const v = validateBranchForWireRow(pr.bankDigits, excelBranchRaw);
+  if (!v.ok) return { kind: 'amber', label: '分行格式需修正' };
+
+  if (ar.lookupStatus === 'excel_only') {
+    return { kind: 'red', label: '清單無候選' };
+  }
+
+  if (
+    (ar.lookupStatus === 'name_hint_only' ||
+      (ar.lookupStatus === 'choose_master' && (ar.accountMatchCount ?? 0) === 0)) &&
+    d.kind === 'excel'
+  ) {
+    // 長文提示改為整批顯示一次（表格上方）；列內避免重複句子
+    return { kind: 'amber', label: '' };
+  }
+
+  if (ar.lookupStatus === 'choose_master') {
+    if (d.kind !== 'master') return { kind: 'blue', label: '待選清單列' };
+    if (!d.payeeAccountId) return { kind: 'blue', label: '待選清單列' };
+  }
+
+  if (ar.lookupStatus === 'confirm_master') {
+    return { kind: 'amber', label: '清單／Excel 七碼不一致' };
+  }
+
+  if (d.kind === 'master' && !!d.payeeAccountId) {
+    return { kind: 'green', label: '使用清單帳號' };
+  }
+
+  return { kind: 'none', label: '使用 Excel 資料' };
+}
+
+const statusCounts = computed(() => {
+  let green = 0;
+  let blue = 0;
+  let amber = 0;
+  let red = 0;
+  for (let i = 0; i < previewRows.value.length; i++) {
+    const k = rowStatusPill(i).kind;
+    if (k === 'green') green++;
+    else if (k === 'blue') blue++;
+    else if (k === 'amber') amber++;
+    else if (k === 'red') red++;
+  }
+  return { green, blue, amber, red };
+});
+
+function initResolutionDraftFromAnalysis(rows: BankWireAnalyzeRowDto[]) {
+  const d: Record<number, WireResolutionUi> = {};
+  const show: Record<number, boolean> = {};
+  for (const ar of rows) {
+    show[ar.rowIndex] = false;
+    if (ar.lookupStatus === 'excel_only') {
+      d[ar.rowIndex] = {
+        rowIndex: ar.rowIndex,
+        kind: 'excel',
+        payeeAccountId: '',
+        manualBranch4: '',
+      };
+      continue;
+    }
+
+    // 清單帳號未命中、僅相似戶名：預設使用 Excel，避免誤選第一筆模糊結果
+    if (ar.lookupStatus === 'name_hint_only') {
+      d[ar.rowIndex] = {
+        rowIndex: ar.rowIndex,
+        kind: 'excel',
+        payeeAccountId: '',
+        manualBranch4: '',
+      };
+      continue;
+    }
+
+    const choices = masterChoicesForRow(ar.rowIndex);
+    let kind: 'master' | 'excel' = 'excel';
+    let payeeAccountId = '';
+    const manualBranch4 = '';
+
+    if (choices.length > 0) {
+      kind = 'master';
+      payeeAccountId = String(ar.suggestedMaster?.id ?? choices[0]!.id);
+    }
+    if (ar.lookupStatus === 'branch_invalid' && choices.length === 0) {
+      kind = 'excel';
+      payeeAccountId = '';
+    }
+
+    d[ar.rowIndex] = {
+      rowIndex: ar.rowIndex,
+      kind,
+      payeeAccountId,
+      manualBranch4,
+    };
+  }
+  resolutionDraft.value = d;
+  showOtherCandidates.value = show;
+}
+
+async function runAnalyze(file: File) {
+  analysisLoading.value = true;
+  analysisError.value = '';
+  analysisRows.value = [];
+  resolutionDraft.value = {};
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch(API_ANALYZE, { method: 'POST', body: fd });
+    if (!r.ok) {
+      const msg = await readErrorMessage(r);
+      throw new Error(msg);
+    }
+    const data = (await r.json()) as { rows?: BankWireAnalyzeRowDto[] };
+    const rows = data.rows ?? [];
+    analysisRows.value = rows;
+    if (rows.length > 0) {
+      initResolutionDraftFromAnalysis(rows);
+    }
+  } catch (e: unknown) {
+    console.error(e);
+    analysisError.value =
+      e instanceof Error ? e.message : '收款帳號清單比對失敗，請稍後再試';
+  } finally {
+    analysisLoading.value = false;
+  }
 }
 
 async function runPreviewParse(file: File) {
@@ -629,8 +1123,11 @@ async function runPreviewParse(file: File) {
         feeDisplay: `${alloc.labelZh}（${alloc.code}）`,
         excludeFromExport: inLog,
         previouslyExported: inLog,
+        bankDigits: r.bankDigits,
+        branchCellRaw: r.branchCellRaw,
       };
     });
+    void runAnalyze(file);
   } catch (e) {
     console.error(e);
     parseError.value = '無法讀取 Excel，請確認檔案未損毀且為 Commeet 付款資料格式。';
@@ -706,6 +1203,29 @@ const mergedPreviewGroups = computed((): MergedPreviewGroup[] => {
 
 const mergedExportLineCount = computed(() => mergedPreviewGroups.value.length);
 
+const payeeResolutionOk = computed(() => {
+  if (!previewRows.value.length) return false;
+  if (analysisLoading.value) return false;
+  if (analysisError.value) return false;
+  if (analysisRows.value.length !== previewRows.value.length) return false;
+  for (let i = 0; i < previewRows.value.length; i++) {
+    const d = resolutionDraft.value[i];
+    const pr = previewRows.value[i]!;
+    if (!d) return false;
+    if (d.kind === 'master') {
+      if (!d.payeeAccountId) return false;
+      continue;
+    }
+    const branchRaw =
+      d.manualBranch4 != null && String(d.manualBranch4).trim() !== ''
+        ? d.manualBranch4
+        : pr.branchCellRaw;
+    const v = validateBranchForWireRow(pr.bankDigits, branchRaw);
+    if (!v.ok) return false;
+  }
+  return true;
+});
+
 const convertDisabled = computed(() => {
   return (
     !upload.selectedFile.value ||
@@ -713,7 +1233,8 @@ const convertDisabled = computed(() => {
     isParsingPreview.value ||
     !!parseError.value ||
     previewRows.value.length === 0 ||
-    willExportCount.value === 0
+    willExportCount.value === 0 ||
+    !payeeResolutionOk.value
   );
 });
 
@@ -751,9 +1272,26 @@ const handleConvert = async () => {
       .filter((r) => r.excludeFromExport)
       .map((r) => r.formNo);
 
+    const resolutions = previewRows.value.map((_, i) => {
+      const d = resolutionDraft.value[i]!;
+      return {
+        rowIndex: i,
+        kind: d.kind,
+        payeeAccountId:
+          d.kind === 'master' ? d.payeeAccountId : undefined,
+        manualBranch4:
+          d.kind === 'excel' &&
+          d.manualBranch4 != null &&
+          String(d.manualBranch4).trim() !== ''
+            ? String(d.manualBranch4).trim()
+            : undefined,
+      };
+    });
+
     const formData = new FormData();
     formData.append('file', upload.selectedFile.value);
     formData.append('excludedFormNos', JSON.stringify(excluded));
+    formData.append('resolutions', JSON.stringify(resolutions));
 
     const response = await fetch('/api/bank-convert', {
       method: 'POST',

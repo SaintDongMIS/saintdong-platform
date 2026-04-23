@@ -7,11 +7,18 @@ export interface CommeetWireExportRow {
   payeeName: string;
   payeeTaxId: string;
   bankDigits: string;
+  /** 4 位（數字）；Excel 空白時 parse 階段仍可能為 0000，實際是否空白請看 branchCellRaw */
+  branchDigits4: string;
+  /** Excel「分行代碼」儲存格原始值；無此欄時為 undefined */
+  branchCellRaw?: unknown;
   bankNameLabel: string;
   receivingBankDisplay: string;
   accountDigits: string;
   amount14: string;
+  /** 金融機構 3 位（與金額組成 amount17 尾三碼） */
   payeeBank3: string;
+  /** 清算通用 7 位：payeeBank3 + branchDigits4 */
+  payeeBankCode7: string;
 }
 
 function cleanExcelHeader(value: unknown): string {
@@ -26,7 +33,7 @@ function isExcelRowEmpty(row: unknown[]): boolean {
       c === null ||
       c === undefined ||
       c === '' ||
-      (typeof c === 'string' && c.trim() === '')
+      (typeof c === 'string' && c.trim() === ''),
   );
 }
 
@@ -72,8 +79,25 @@ export function parseAmountToAmount14(cell: unknown): string {
   throw new Error(`無法解析金額：${s}`);
 }
 
-export function formatReceivingBankCode7(bankDigits: string): string {
-  return (bankDigits.padStart(3, '0').slice(-3) + '0000').slice(0, 7);
+/** 由「��行代�「分行代��」組成 7 位收款清算代��（3+4） */
+export function formatReceivingBankCode7(
+  bankDigits: string,
+  branchRaw?: unknown,
+): string {
+  const bank3 = bankDigits.padStart(3, '0').slice(-3);
+  const branch4 = parseBranchCodeFour(branchRaw);
+  return (bank3 + branch4).slice(0, 7);
+}
+
+function parseBranchCodeFour(branchRaw: unknown): string {
+  if (branchRaw == null || branchRaw === '') {
+    return '0000';
+  }
+  const digits = accountDigitsPreserve(branchRaw);
+  if (!digits) {
+    return '0000';
+  }
+  return digits.padStart(4, '0').slice(-4);
 }
 
 export function formatTwdAmountFromAmount14(amount14: string): string {
@@ -88,11 +112,12 @@ export function formatTwdAmountFromAmount14(amount14: string): string {
   );
 }
 
-function buildReceivingBankDisplay(
+export function buildReceivingBankDisplay(
   bankDigits: string,
-  bankNameRaw: unknown
+  branchRaw: unknown,
+  bankNameRaw: unknown,
 ): string {
-  const code7 = formatReceivingBankCode7(bankDigits);
+  const code7 = formatReceivingBankCode7(bankDigits, branchRaw);
   const name = cellString(bankNameRaw);
   if (name) return `${code7} ${name}`.trim();
   return code7;
@@ -100,7 +125,7 @@ function buildReceivingBankDisplay(
 
 export function readCommeetSheetMatrix(
   input: Buffer | ArrayBuffer,
-  cfg: BankConvertCommeetConfigType
+  cfg: BankConvertCommeetConfigType,
 ):
   | { ok: true; jsonData: unknown[][]; sheetName: string }
   | { ok: false; error: string } {
@@ -135,7 +160,7 @@ export function readCommeetSheetMatrix(
 
 export function extractCommeetWireExportRows(
   jsonData: unknown[][],
-  cfg: BankConvertCommeetConfigType
+  cfg: BankConvertCommeetConfigType,
 ):
   | { ok: false; error: string }
   | {
@@ -160,6 +185,7 @@ export function extractCommeetWireExportRows(
   const idxFormNo = headers.indexOf(cfg.HEADER.FORM_NO);
   const idxTaxId = headers.indexOf(cfg.HEADER.PAYEE_TAX_ID);
   const idxBankName = headers.indexOf(cfg.HEADER.BANK_NAME);
+  const idxBranch = headers.indexOf(cfg.HEADER.BRANCH_CODE);
 
   const dataRows = jsonData.slice(1);
   const rows: CommeetWireExportRow[] = [];
@@ -182,12 +208,17 @@ export function extractCommeetWireExportRows(
     const accountRaw = row[idxAccount];
     const amountCell = row[idxAmount];
     const formNo = idxFormNo >= 0 ? cellString(row[idxFormNo]) : '';
-    const payeeTaxId =
-      idxTaxId >= 0 ? cellString(row[idxTaxId]) : '';
+    const payeeTaxId = idxTaxId >= 0 ? cellString(row[idxTaxId]) : '';
 
     const bankDigits = bankCodeDigitsOnly(bankCodeRaw);
     const accountDigits = accountDigitsPreserve(accountRaw);
-    if (!payeeName || !bankDigits || !accountDigits || amountCell === '' || amountCell == null) {
+    if (
+      !payeeName ||
+      !bankDigits ||
+      !accountDigits ||
+      amountCell === '' ||
+      amountCell == null
+    ) {
       skippedInvalid++;
       continue;
     }
@@ -207,17 +238,28 @@ export function extractCommeetWireExportRows(
       continue;
     }
 
+    const branchRaw = idxBranch >= 0 ? row[idxBranch] : '';
+    const branchDigits4 = parseBranchCodeFour(branchRaw);
+    const payeeBankCode7 = (payeeBank3 + branchDigits4).slice(0, 7);
+
     const bankNameRaw = idxBankName >= 0 ? row[idxBankName] : '';
     rows.push({
       formNo,
       payeeName,
       payeeTaxId,
       bankDigits,
+      branchDigits4,
+      branchCellRaw: idxBranch >= 0 ? row[idxBranch] : undefined,
       bankNameLabel: cellString(bankNameRaw),
-      receivingBankDisplay: buildReceivingBankDisplay(bankDigits, bankNameRaw),
+      receivingBankDisplay: buildReceivingBankDisplay(
+        bankDigits,
+        branchRaw,
+        bankNameRaw,
+      ),
       accountDigits,
       amount14,
       payeeBank3,
+      payeeBankCode7,
     });
   }
 

@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import multer from 'multer';
 import crypto from 'crypto';
+import { BankConverterExcelConfig } from '../constants/bankConverterExcelConfig';
 import { BankConverterService } from '../services/BankConverterService';
 import {
   insertBankWireExportLedger,
@@ -11,6 +12,15 @@ import {
 } from '../services/BankWireExportLogService';
 import { ErrorHandler } from '../utils/errorHandler';
 import { apiLogger } from '../services/LoggerService';
+import {
+  extractCommeetWireExportRows,
+  readCommeetSheetMatrix,
+} from '../../utils/commeetBankExcelParse';
+import { assertWireGroupsSamePayeeBankCode7 } from '../../utils/bankWireMerge';
+import {
+  applyPayeeResolutionsToWireRows,
+  type BankWirePayeeResolutionInput,
+} from '../utils/applyBankWirePayeeResolutions';
 
 function taipeiDateParts(now: Date): {
   year: string;
@@ -63,7 +73,7 @@ function createBankWireDownloadFilename(now: Date): string {
  *
  * POST /api/bank-convert
  * Content-Type: multipart/form-data
- * Body: file（Commeet「付款資料」.xlsx/.xls）；可選 excludedFormNos（JSON 陣列，表單編號不納入轉檔）
+ * Body: file（Commeet「付款資料」.xlsx/.xls）；可選 excludedFormNos（JSON 陣列）；可選 resolutions（JSON 陣列，每筆匯款之 excel／清單決議，與分析 API 列序相同）
  *
  * Response: 轉換後的檔案（Binary，Big5 編碼）
  */
@@ -145,7 +155,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const body = (event.node.req as any).body as
-      | { excludedFormNos?: string }
+      | { excludedFormNos?: string; resolutions?: string }
       | undefined;
     let excludedFormNos = new Set<string>();
     if (body?.excludedFormNos && typeof body.excludedFormNos === 'string') {
@@ -161,16 +171,62 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    let resolutionsPayload: BankWirePayeeResolutionInput[] | null = null;
+    if (body?.resolutions && typeof body.resolutions === 'string') {
+      const raw = body.resolutions.trim();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (!Array.isArray(parsed)) {
+            throw new Error('resolutions 必須為陣列');
+          }
+          resolutionsPayload = parsed as BankWirePayeeResolutionInput[];
+        } catch (e: any) {
+          throw new Error(
+            `無法解析 resolutions：${e?.message || 'JSON 格式錯誤'}`
+          );
+        }
+      }
+    }
+
     // 轉換檔案
     const converter = new BankConverterService();
     let outputBuffer: Buffer;
     let ledgerRows: BankWireLedgerRow[];
     try {
-      const result = converter.convertExcelBuffer(inputBuffer, {
-        excludedFormNos,
-      });
-      outputBuffer = result.outputBuffer;
-      ledgerRows = result.ledgerRows;
+      if (resolutionsPayload && resolutionsPayload.length > 0) {
+        const cfg = BankConverterExcelConfig;
+        const sheet = readCommeetSheetMatrix(inputBuffer, cfg);
+        if (!sheet.ok) {
+          throw new Error(sheet.error);
+        }
+        const extracted = extractCommeetWireExportRows(sheet.jsonData, cfg);
+        if (!extracted.ok) {
+          throw new Error(extracted.error);
+        }
+        if (resolutionsPayload.length !== extracted.rows.length) {
+          throw new Error(
+            `決議筆數（${resolutionsPayload.length}）須與匯款列筆數（${extracted.rows.length}）相同`
+          );
+        }
+        const resolvedRows = await applyPayeeResolutionsToWireRows(
+          extracted.rows,
+          resolutionsPayload
+        );
+        assertWireGroupsSamePayeeBankCode7(resolvedRows, excludedFormNos);
+        const result = converter.convertFromExtractedWireRows(
+          { ...extracted, rows: resolvedRows },
+          { excludedFormNos }
+        );
+        outputBuffer = result.outputBuffer;
+        ledgerRows = result.ledgerRows;
+      } else {
+        const result = converter.convertExcelBuffer(inputBuffer, {
+          excludedFormNos,
+        });
+        outputBuffer = result.outputBuffer;
+        ledgerRows = result.ledgerRows;
+      }
     } catch (convertError: any) {
       apiLogger.error('檔案轉換失敗', convertError, {
         filename: uploadedFile.originalname,
