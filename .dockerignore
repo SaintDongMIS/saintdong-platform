@@ -49,3 +49,6 @@ uploads
 deploy.sh
 NAS-DEPLOY.md
 
+# GitHub Actions runner 更新殘留（避免污染 build context）
+/_update
+
