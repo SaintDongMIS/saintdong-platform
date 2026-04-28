@@ -1,5 +1,5 @@
-# 使用 Node.js 20 作為基礎映像
-FROM node:20-alpine
+# 使用 Node.js 22 作為基礎映像
+FROM node:22-alpine
 
 # 設定工作目錄
 WORKDIR /app
