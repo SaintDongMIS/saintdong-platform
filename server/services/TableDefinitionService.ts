@@ -26,7 +26,7 @@ export const reimbursementTableSchema = `
   [實際付款日期] DATE,
   [供應商/銀行/員工] NVARCHAR(50),
   [入帳對象代號] NVARCHAR(50),
-  [入帳對象] NVARCHAR(50),
+  [入帳對象] NVARCHAR(500),
   [付款對象統編] NVARCHAR(50),
   [付款金額] DECIMAL(18,2),
   [付款方式] NVARCHAR(50),
