@@ -31,7 +31,7 @@ export const reimbursementTableSchema = `
   [付款金額] DECIMAL(18,2),
   [付款方式] NVARCHAR(50),
   [供應商來源] NVARCHAR(50),
-  [付款銀行戶名] NVARCHAR(50),
+  [付款銀行戶名] NVARCHAR(500),
   [付款銀行代碼] NVARCHAR(50),
   [付款分行代碼] NVARCHAR(50),
   [付款銀行名稱] NVARCHAR(50),
