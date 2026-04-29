@@ -4,10 +4,12 @@ import { DatabaseService } from '~/server/services/DatabaseService';
 import { TableMigrationService } from '~/server/services/TableMigrationService';
 import { reimbursementTableSchema } from '~/server/services/TableDefinitionService';
 import { automationLogger } from '~/server/services/LoggerService';
+import { EmailService } from '~/server/services/EmailService';
 import { DateHelper } from '~/server/utils/dateHelper';
 
 // 資料表名稱
 const TABLE_NAME = 'ExpendForm';
+const JOB_NAME = 'COMMEET_SYNC';
 
 interface SyncRequestBody {
   dateStart?: string; // YYYY-MM-DD
@@ -41,6 +43,18 @@ function getDefaultSyncDays(): number {
 
 export default defineEventHandler(async (event) => {
   const startTime = Date.now();
+  let dateRange: { start: string; end: string } | undefined;
+
+  const sendAutomationNotificationNonBlocking = (
+    payload: Parameters<typeof EmailService.sendAutomationNotification>[0],
+    warnMessage: string,
+  ): void => {
+    EmailService.sendAutomationNotification(payload).catch((error) => {
+      automationLogger.warn(warnMessage, {
+        error,
+      });
+    });
+  };
 
   try {
     // 解析請求參數（如果沒有提供日期，使用 COMMEET_SYNC_DEFAULT_DAYS）
@@ -56,7 +70,7 @@ export default defineEventHandler(async (event) => {
       };
     };
 
-    const dateRange: { start: string; end: string } =
+    dateRange =
       body?.dateStart && body?.dateEnd
         ? { start: body.dateStart, end: body.dateEnd }
         : getDefaultDateRange();
@@ -92,6 +106,28 @@ export default defineEventHandler(async (event) => {
     // 查無符合條件表單時 COMMEET 回 400「查無此表單」，已視為成功但無 buffer
     if (!downloadResult.buffer) {
       const duration = Date.now() - startTime;
+      sendAutomationNotificationNonBlocking(
+        {
+        success: true,
+        message: '同步完成，但沒有資料需要處理',
+          jobName: JOB_NAME,
+        runTime: new Date().toISOString(),
+        dateRange,
+        duration: `${duration}ms`,
+        excelStats: {
+          totalRows: 0,
+          validRows: 0,
+          skippedRows: 0,
+        },
+        databaseStats: {
+          tableName: TABLE_NAME,
+          insertedCount: 0,
+          skippedCount: 0,
+          errorCount: 0,
+        },
+        },
+        'Email 通知發送失敗（不影響同步流程）',
+      );
       return {
         success: true,
         message: '同步完成，但沒有資料需要處理',
@@ -130,6 +166,30 @@ export default defineEventHandler(async (event) => {
     });
 
     if (parsedData.rows.length === 0) {
+      sendAutomationNotificationNonBlocking(
+        {
+          success: true,
+          message: '同步完成，但沒有資料需要處理',
+          jobName: JOB_NAME,
+          runTime: new Date().toISOString(),
+          dateRange,
+          duration: `${Date.now() - startTime}ms`,
+          fileName: downloadResult.fileName,
+          excelStats: {
+            totalRows: parsedData.totalRows,
+            validRows: 0,
+            skippedRows: parsedData.skippedRows,
+            headers: parsedData.headers,
+          },
+          databaseStats: {
+            tableName: TABLE_NAME,
+            insertedCount: 0,
+            skippedCount: 0,
+            errorCount: 0,
+          },
+        },
+        'Email 通知發送失敗（不影響同步流程）',
+      );
       return {
         success: true,
         message: '同步完成，但沒有資料需要處理',
@@ -180,6 +240,32 @@ export default defineEventHandler(async (event) => {
       errorCount: dbResult.errors.length,
     });
 
+    sendAutomationNotificationNonBlocking(
+      {
+        success: true,
+        message: 'COMMEET 同步完成',
+        jobName: JOB_NAME,
+        runTime: new Date().toISOString(),
+        dateRange,
+        duration: `${duration}ms`,
+        fileName: downloadResult.fileName,
+        excelStats: {
+          totalRows: parsedData.totalRows,
+          validRows: parsedData.validRows,
+          skippedRows: parsedData.skippedRows,
+          headers: parsedData.headers,
+        },
+        databaseStats: {
+          tableName: TABLE_NAME,
+          insertedCount: dbResult.insertedCount,
+          skippedCount: dbResult.skippedCount,
+          errorCount: dbResult.errors.length,
+        },
+        errors: dbResult.errors.slice(0, 10),
+      },
+      'Email 通知發送失敗（不影響同步流程）',
+    );
+
     return {
       success: true,
       message: 'COMMEET 同步完成',
@@ -204,6 +290,19 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     automationLogger.error('COMMEET 同步失敗', error);
+
+    sendAutomationNotificationNonBlocking(
+      {
+        success: false,
+        message: `COMMEET 同步失敗: ${errorMessage}`,
+        jobName: JOB_NAME,
+        runTime: new Date().toISOString(),
+        dateRange,
+        duration: `${Date.now() - startTime}ms`,
+        errors: [errorMessage],
+      },
+      '失敗通知 Email 發送失敗（不影響同步流程）',
+    );
 
     throw createError({
       statusCode: 500,

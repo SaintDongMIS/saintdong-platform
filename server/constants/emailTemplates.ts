@@ -22,6 +22,32 @@ export interface EmailData {
   errors?: string[];
 }
 
+export interface AutomationEmailData {
+  success: boolean;
+  message: string;
+  jobName: string;
+  runTime: string;
+  dateRange?: {
+    start: string;
+    end: string;
+  };
+  duration?: string;
+  fileName?: string;
+  excelStats?: {
+    totalRows: number;
+    validRows: number;
+    skippedRows: number;
+    headers?: string[];
+  };
+  databaseStats?: {
+    tableName?: string;
+    insertedCount: number;
+    skippedCount: number;
+    errorCount: number;
+  };
+  errors?: string[];
+}
+
 /**
  * 格式化檔案大小
  */
@@ -173,6 +199,137 @@ export function buildEmailHtml(data: EmailData): string {
       </div>
       ${buildExcelStatsSection(data.excelStats)}
       ${buildDatabaseStatsSection(data.databaseStats)}
+      ${buildErrorsSection(data.errors)}
+    </div>
+    <div class="footer">
+      <p>此為系統自動發送的通知郵件，請勿回覆。</p>
+      <p>SaintDong Platform - 企業內部管理系統</p>
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+}
+
+function buildAutomationDateRangeSection(
+  dateRange?: AutomationEmailData['dateRange']
+): string {
+  if (!dateRange) return '';
+  return `
+    <div class="info-row">
+      <span class="label">同步日期範圍：</span>${dateRange.start} ～ ${dateRange.end}
+    </div>
+  `;
+}
+
+function buildAutomationDurationSection(duration?: string): string {
+  if (!duration) return '';
+  return `
+    <div class="info-row">
+      <span class="label">執行時間：</span>${duration}
+    </div>
+  `;
+}
+
+function buildAutomationExcelStatsSection(
+  excelStats: AutomationEmailData['excelStats']
+): string {
+  if (!excelStats) return '';
+  const headers =
+    excelStats.headers && excelStats.headers.length > 0
+      ? `<div class="info-row" style="font-size: 12px; color: #6b7280;">
+          欄位（前 10 個）：${excelStats.headers.slice(0, 10).join(', ')}
+        </div>`
+      : '';
+
+  return `
+    <div class="stats">
+      <h3>Excel 解析統計</h3>
+      <div class="info-row">總行數：${excelStats.totalRows}</div>
+      <div class="info-row success">有效行數：${excelStats.validRows}</div>
+      <div class="info-row warning">跳過行數：${excelStats.skippedRows}</div>
+      ${headers}
+    </div>
+  `;
+}
+
+function buildAutomationDatabaseStatsSection(
+  databaseStats: AutomationEmailData['databaseStats']
+): string {
+  if (!databaseStats) return '';
+
+  const errorClass = databaseStats.errorCount > 0 ? 'error' : 'success';
+  const tableName = databaseStats.tableName
+    ? `<div class="info-row"><span class="label">資料表：</span>${databaseStats.tableName}</div>`
+    : '';
+
+  return `
+    <div class="stats">
+      <h3>資料庫操作統計</h3>
+      ${tableName}
+      <div class="info-row success">成功插入：${databaseStats.insertedCount} 筆</div>
+      <div class="info-row warning">跳過（重複）：${databaseStats.skippedCount} 筆</div>
+      <div class="info-row ${errorClass}">錯誤數量：${databaseStats.errorCount} 筆</div>
+    </div>
+  `;
+}
+
+export function buildAutomationEmailHtml(data: AutomationEmailData): string {
+  const isSuccess = data.success;
+  const headerColor = isSuccess ? '#4F46E5' : '#ef4444';
+  const headerTitle = isSuccess ? '自動化排程執行成功通知' : '自動化排程執行失敗通知';
+  const statusBgColor = isSuccess ? '#d1fae5' : '#fee2e2';
+  const statusTextColor = isSuccess ? '#065f46' : '#991b1b';
+  const statusIcon = isSuccess ? '✅' : '❌';
+
+  const fileNameRow = data.fileName
+    ? `
+      <div class="info-row">
+        <span class="label">檔案名稱：</span>${data.fileName}
+      </div>
+    `
+    : '';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background-color: ${headerColor}; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+    .content { background-color: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; }
+    .info-row { margin: 10px 0; }
+    .label { font-weight: bold; color: #374151; }
+    .stats { background-color: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid ${headerColor}; }
+    .success { color: #10b981; }
+    .warning { color: #f59e0b; }
+    .error { color: #ef4444; }
+    .footer { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
+    .status-message { padding: 15px; margin: 15px 0; border-radius: 5px; background-color: ${statusBgColor}; color: ${statusTextColor}; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>${headerTitle}</h2>
+    </div>
+    <div class="content">
+      <div class="status-message">
+        <strong>${statusIcon} ${data.message}</strong>
+      </div>
+      <div class="info-row">
+        <span class="label">工作：</span>${data.jobName}
+      </div>
+      <div class="info-row">
+        <span class="label">執行時間：</span>${formatDate(data.runTime)}
+      </div>
+      ${buildAutomationDateRangeSection(data.dateRange)}
+      ${buildAutomationDurationSection(data.duration)}
+      ${fileNameRow}
+      ${buildAutomationExcelStatsSection(data.excelStats)}
+      ${buildAutomationDatabaseStatsSection(data.databaseStats)}
       ${buildErrorsSection(data.errors)}
     </div>
     <div class="footer">

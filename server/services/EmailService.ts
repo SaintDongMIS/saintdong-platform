@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
-import { uploadLogger } from './LoggerService';
-import { buildEmailHtml } from '../constants/emailTemplates';
-import type { EmailData } from '../constants/emailTemplates';
+import { automationLogger, uploadLogger } from './LoggerService';
+import { buildAutomationEmailHtml, buildEmailHtml } from '../constants/emailTemplates';
+import type { AutomationEmailData, EmailData } from '../constants/emailTemplates';
 
 /**
  * Email 服務
@@ -106,6 +106,43 @@ export class EmailService {
   }
 
   /**
+   * 發送自動化排程通知郵件（成功或失敗都會發送）
+   * 用於 cron / automation job（例如 COMMEET 同步）
+   */
+  static async sendAutomationNotification(
+    data: AutomationEmailData
+  ): Promise<void> {
+    const disableEmail =
+      process.env.DISABLE_EMAIL === 'true' || process.env.DISABLE_EMAIL === '1';
+    if (disableEmail) {
+      automationLogger.info('📧 EMAIL 功能已關閉（DISABLE_EMAIL=true）', {
+        jobName: data.jobName,
+        success: data.success,
+      });
+      return;
+    }
+
+    const recipient = process.env.EMAIL_TO;
+    if (!recipient) {
+      automationLogger.info('📧 EMAIL 功能已關閉（未設定 EMAIL_TO）', {
+        jobName: data.jobName,
+        success: data.success,
+      });
+      return;
+    }
+
+    const emailConfig = this.prepareAutomationEmailConfig(data);
+
+    try {
+      const mailResult = await this.sendEmail(emailConfig);
+      this.logAutomationEmailSuccess(mailResult, data);
+    } catch (error) {
+      this.logAutomationEmailError(error, data);
+      throw error;
+    }
+  }
+
+  /**
    * 準備郵件資料
    */
   private static prepareEmailData(uploadResult: {
@@ -166,6 +203,29 @@ export class EmailService {
     };
   }
 
+  private static prepareAutomationEmailConfig(
+    automationData: AutomationEmailData
+  ): {
+    from: string;
+    to: string[];
+    subject: string;
+    html: string;
+  } {
+    const recipient = process.env.EMAIL_TO!;
+    const recipients = recipient.split(',').map((email) => email.trim());
+    const smtpFrom = process.env.SMTP_FROM || 'mailsystem@mail.bim-group.com';
+    const emailSubject = automationData.success
+      ? `[${automationData.jobName}] 自動化排程執行成功通知`
+      : `[${automationData.jobName}] 自動化排程執行失敗通知`;
+
+    return {
+      from: smtpFrom,
+      to: recipients,
+      subject: emailSubject,
+      html: buildAutomationEmailHtml(automationData),
+    };
+  }
+
   /**
    * 發送郵件（含超時保護）
    */
@@ -207,6 +267,27 @@ export class EmailService {
     uploadLogger.error('❌ EMAIL 通知：郵件發送失敗', error, {
       department: emailData.department,
       fileName: emailData.fileName,
+    });
+  }
+
+  private static logAutomationEmailSuccess(
+    mailResult: any,
+    data: AutomationEmailData
+  ): void {
+    automationLogger.info('✅ EMAIL 通知：自動化排程郵件發送成功', {
+      messageId: mailResult.messageId,
+      jobName: data.jobName,
+      success: data.success,
+    });
+  }
+
+  private static logAutomationEmailError(
+    error: any,
+    data: AutomationEmailData
+  ): void {
+    automationLogger.error('❌ EMAIL 通知：自動化排程郵件發送失敗', error, {
+      jobName: data.jobName,
+      success: data.success,
     });
   }
 
