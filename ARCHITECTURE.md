@@ -426,6 +426,17 @@ chore: 建置工具或輔助工具的變動
 
 - **COMMEET_AUTO_SYNC_ENABLED**: 是否啟用排程自動同步（cron）；`true` 啟用、`false` 僅手動同步。
 - **COMMEET_SYNC_DEFAULT_DAYS**: 同步 API 未帶 `dateStart`/`dateEnd` 時的預設抓取天數（1～180），預設為 7。
+- **排程時間（NAS Docker）**: 排程定義在 `docker/crontab`，並以容器內 `TZ=Asia/Taipei`（台灣時間）為準。目前設定為每天 **08:30、14:30** 呼叫 `POST /api/commeet/sync`。
+- **排程日誌（NAS Docker）**: `docker/crontab` 會將執行時間戳與 API 回應（含 HTTP code）寫入 `/var/log/commeet-sync.log`（容器內檔案）。
+
+### Email 通知（同步結果）
+
+`/api/commeet/sync` 在成功/失敗時都會嘗試寄出「自動化排程執行結果」通知信（寄信失敗不影響同步主流程）。
+
+- **DISABLE_EMAIL**: `true`/`1` 時停用寄信。
+- **EMAIL_TO**: 收件人，可用逗號分隔多個 email。
+- **SMTP_HOST / SMTP_PORT / SMTP_FROM**: SMTP 連線設定。
+- **SMTP_USER / SMTP_PASSWORD**: 若 SMTP 需要帳密則設定；未設定 `SMTP_USER` 時會以匿名方式連線（適用內網 SMTP）。
 
 ## 監控與維護
 
