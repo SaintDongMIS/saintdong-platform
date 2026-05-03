@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import puppeteer, { Browser, Page } from 'puppeteer-core';
 import fetch from 'node-fetch';
 import { automationLogger } from './LoggerService';
+import {
+  automationLogVerbose,
+  isCommeetAutomationProd,
+} from '../utils/automationIoLog';
 import { commeetSelectors } from '../config/commeetSelectors';
 
 interface LoginResult {
@@ -45,7 +49,7 @@ export class CommeetService {
    */
   async login(): Promise<LoginResult> {
     try {
-      automationLogger.info('開始執行 COMMEET 自動登入');
+      automationLogVerbose('commeet_login_start');
 
       // 啟動瀏覽器
       this.browser = await this.launchBrowser();
@@ -81,7 +85,7 @@ export class CommeetService {
     cookies?: Cookie[];
   }> {
     try {
-      automationLogger.info('開始執行 COMMEET 登入並取得 Cookies');
+      automationLogVerbose('commeet_login_and_cookies_start');
 
       // 啟動瀏覽器
       this.browser = await this.launchBrowser();
@@ -101,7 +105,7 @@ export class CommeetService {
       // 取得 Cookies
       const cookies = await this.getCookies(page);
 
-      automationLogger.info('成功取得 Cookies', {
+      automationLogVerbose('commeet_cookies_obtained', {
         cookieCount: cookies.length,
       });
 
@@ -127,7 +131,7 @@ export class CommeetService {
    */
   private async getCookies(page: Page): Promise<Cookie[]> {
     const cookies = await page.cookies();
-    automationLogger.info('取得 Cookies', {
+    automationLogVerbose('commeet_cookie_snapshot', {
       count: cookies.length,
       domains: [...new Set(cookies.map((c) => c.domain))],
     });
@@ -143,6 +147,7 @@ export class CommeetService {
    * 啟動瀏覽器（自動偵測環境）
    */
   private async launchBrowser(): Promise<Browser> {
+    const t0 = Date.now();
     const isProduction = process.env.NODE_ENV === 'production';
     const isMac = process.platform === 'darwin';
 
@@ -159,7 +164,7 @@ export class CommeetService {
         ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' // Mac 的 Chrome
         : undefined; // Windows/Linux 使用預設
 
-    automationLogger.info('啟動瀏覽器', {
+    automationLogVerbose('puppeteer_launch_start', {
       environment: isProduction ? 'production' : 'development',
       platform: process.platform,
       executablePath,
@@ -178,7 +183,14 @@ export class CommeetService {
       ],
     });
 
-    automationLogger.info('瀏覽器啟動成功');
+    automationLogger.info('io_complete', {
+      job: 'COMMEET_SYNC',
+      operation: 'puppeteer_launch',
+      ok: true,
+      ms: Date.now() - t0,
+      headless: isProduction,
+      platform: process.platform,
+    });
     return browser;
   }
 
@@ -193,7 +205,7 @@ export class CommeetService {
       });
     });
 
-    automationLogger.info('反偵測機制已設定');
+    automationLogVerbose('puppeteer_anti_detection_set');
   }
 
   /**
@@ -214,38 +226,40 @@ export class CommeetService {
       throw new Error('缺少 COMMEET_EMAIL 或 COMMEET_PASSWORD 環境變數');
     }
 
-    // 步驟 1：導航到登入頁
-    automationLogger.info('步驟 1：導航到 COMMEET 登入頁', { loginUrl });
+    automationLogVerbose('puppeteer_login_step', { step: 1, action: 'goto', loginUrl });
     await page.goto(loginUrl, {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
 
-    // 步驟 2：等待 1000ms
-    automationLogger.info('步驟 2：等待 1000ms');
+    automationLogVerbose('puppeteer_login_step', { step: 2, action: 'delay_ms', ms: 1000 });
     await this.delay(1000);
 
-    // 步驟 3：填入 Email
-    automationLogger.info('步驟 3：填入 Email', { email });
+    automationLogVerbose('puppeteer_login_step', {
+      step: 3,
+      action: 'type_email',
+      ...(isCommeetAutomationProd() ? {} : { email }),
+    });
     await page.waitForSelector(commeetSelectors.emailInput, { timeout: 10000 });
     await page.type(commeetSelectors.emailInput, email);
 
-    // 步驟 4：填入密碼
-    automationLogger.info('步驟 4：填入密碼');
+    automationLogVerbose('puppeteer_login_step', { step: 4, action: 'type_password' });
     await page.waitForSelector(commeetSelectors.passwordInput, {
       timeout: 10000,
     });
     await page.type(commeetSelectors.passwordInput, password);
 
-    // 步驟 5：點擊登入按鈕
-    automationLogger.info('步驟 5：點擊登入按鈕');
+    automationLogVerbose('puppeteer_login_step', { step: 5, action: 'click_login' });
     const loginButton = await page.$(commeetSelectors.loginButton);
     if (!loginButton) {
       throw new Error('找不到登入按鈕');
     }
 
     // 嘗試點擊並等待導航
-    automationLogger.info('點擊登入按鈕並等待導航...');
+    automationLogVerbose('puppeteer_login_step', {
+      step: '5b',
+      action: 'wait_navigation',
+    });
     try {
       await Promise.all([
         page.waitForNavigation({ timeout: 10000 }), // 等待最多 10 秒
@@ -254,7 +268,7 @@ export class CommeetService {
 
       // 導航成功
       const currentUrl = page.url();
-      automationLogger.info('登入成功（頁面已跳轉）', { currentUrl });
+      automationLogVerbose('puppeteer_login_ok', { currentUrl });
 
       return {
         success: true,
@@ -262,7 +276,9 @@ export class CommeetService {
       };
     } catch (error) {
       // 導航超時，檢查是否有錯誤訊息
-      automationLogger.warn('登入後未發生導航，檢查錯誤訊息');
+      automationLogger.warn('puppeteer_login_no_navigation', {
+        phase: 'check_errors_after_click',
+      });
 
       const currentUrl = page.url();
       const pageContent = await page.content();
@@ -325,7 +341,7 @@ export class CommeetService {
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
-      automationLogger.info('瀏覽器已關閉');
+      automationLogVerbose('puppeteer_browser_closed');
     }
   }
 
@@ -346,17 +362,14 @@ export class CommeetService {
         dateRange?.start ||
         this.formatDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
 
-      automationLogger.info('開始下載 Excel 報表', {
+      automationLogVerbose('commeet_excel_download_prepare', {
         dateRange: { start: startDate, end: endDate },
       });
 
-      // 將 Cookies 轉換為 Cookie header 字串
       const cookieString = cookies
         .map((c) => `${c.name}=${c.value}`)
         .join('; ');
 
-      // 構建 API URL（GET 請求，參數在 URL 中）
-      // 重要：export_report_setting=tab1 指定使用「模板一」匯出所有欄位
       const params = new URLSearchParams({
         apply_date_start: startDate,
         apply_date_end: endDate,
@@ -368,13 +381,14 @@ export class CommeetService {
         overview_query: 'Y',
         show_data: 'Y',
         order_by: '1',
-        export_report_setting: 'tab1', // 關鍵參數：使用模板一匯出完整欄位
+        export_report_setting: 'tab1',
       });
 
       const apiUrl = `https://bimgroup.commeet.co/ap/api/doc/listDocByPageExcel?${params.toString()}`;
 
-      automationLogger.info('發送 Excel 下載請求', { apiUrl });
+      automationLogVerbose('commeet_excel_fetch', { apiUrl });
 
+      const tHttp = Date.now();
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -387,7 +401,7 @@ export class CommeetService {
         },
       });
 
-      automationLogger.info('Excel 下載回應', {
+      automationLogVerbose('commeet_excel_response_meta', {
         status: response.status,
         statusText: response.statusText,
         contentType: response.headers.get('content-type'),
@@ -408,8 +422,16 @@ export class CommeetService {
           (typeof body?.error_message === 'string' &&
             body.error_message.includes('查無此表單'));
         if (response.status === 400 && isNoForm) {
-          automationLogger.info('COMMEET 查無符合條件的表單，視為無資料', {
+          automationLogger.info('io_complete', {
+            job: 'COMMEET_SYNC',
+            operation: 'commeet_excel_http',
+            ok: true,
+            outcome: 'no_matching_forms',
+            ms: Date.now() - tHttp,
+            status: response.status,
             dateRange: { start: startDate, end: endDate },
+          });
+          automationLogVerbose('commeet_excel_empty_result', {
             error_message: body?.error_message,
           });
           return {
@@ -419,9 +441,16 @@ export class CommeetService {
             fileName: undefined,
           };
         }
-        automationLogger.error('Excel 下載失敗', {
+        automationLogger.error('commeet_excel_http_error', {
           status: response.status,
           errorText: errorText.substring(0, 500),
+        });
+        automationLogger.warn('io_complete', {
+          job: 'COMMEET_SYNC',
+          operation: 'commeet_excel_http',
+          ok: false,
+          ms: Date.now() - tHttp,
+          status: response.status,
         });
         return {
           success: false,
@@ -445,9 +474,14 @@ export class CommeetService {
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      automationLogger.info('Excel 下載成功', {
+      automationLogger.info('io_complete', {
+        job: 'COMMEET_SYNC',
+        operation: 'commeet_excel_http',
+        ok: true,
+        ms: Date.now() - tHttp,
+        status: response.status,
+        bytes: buffer.length,
         fileName,
-        bufferSize: buffer.length,
       });
 
       return {
@@ -459,7 +493,7 @@ export class CommeetService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      automationLogger.error('Excel 下載失敗', error);
+      automationLogger.error('commeet_excel_download_exception', error);
       return {
         success: false,
         message: `Excel 下載失敗: ${errorMessage}`,

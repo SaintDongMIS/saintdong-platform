@@ -7,6 +7,9 @@ import { automationLogger } from '~/server/services/LoggerService';
 import { EmailService } from '~/server/services/EmailService';
 import { DateHelper } from '~/server/utils/dateHelper';
 import { evaluateCommeetSyncHolidayGate } from '~/server/utils/commeetSyncHolidayGate';
+import {
+  withAutomationIoTiming,
+} from '~/server/utils/automationIoLog';
 
 // 資料表名稱
 const TABLE_NAME = 'ExpendForm';
@@ -67,16 +70,23 @@ export default defineEventHandler(async (event) => {
       () => ({}) as SyncRequestBody,
     );
 
+    const tHoliday = Date.now();
     const holidayGate = await evaluateCommeetSyncHolidayGate({
       localDateYmd: DateHelper.today(),
       skipHolidayCheck: body.skipHolidayCheck === true,
     });
+    const holidayMs = Date.now() - tHoliday;
     if (!holidayGate.proceed) {
       const duration = Date.now() - startTime;
-      automationLogger.info(
-        `[${JOB_NAME}] 今日 ${holidayGate.localDate} 為台灣行政機關休假日，排程不跑同步（COMMEET_SYNC_SKIP_ON_TW_HOLIDAY 已啟用）。`,
-        { localDate: holidayGate.localDate, durationMs: duration },
-      );
+      automationLogger.info('io_complete', {
+        job: JOB_NAME,
+        operation: 'tw_holiday_gate',
+        outcome: 'skipped_rest_day',
+        ok: true,
+        ms: holidayMs,
+        totalMs: duration,
+        localDate: holidayGate.localDate,
+      });
       return {
         success: true,
         skipped: true,
@@ -87,6 +97,14 @@ export default defineEventHandler(async (event) => {
         },
       };
     }
+
+    automationLogger.info('io_complete', {
+      job: JOB_NAME,
+      operation: 'tw_holiday_gate',
+      outcome: 'proceed',
+      ok: true,
+      ms: holidayMs,
+    });
 
     const defaultDays = getDefaultSyncDays();
     const getDefaultDateRange = (): { start: string; end: string } => {
@@ -101,30 +119,37 @@ export default defineEventHandler(async (event) => {
         ? { start: body.dateStart, end: body.dateEnd }
         : getDefaultDateRange();
 
-    automationLogger.info('開始 COMMEET 同步流程', {
+    automationLogger.info('sync_run', {
+      job: JOB_NAME,
       dateRange,
     });
 
-    // 步驟 1: 驗證資料庫連接
-    automationLogger.info('步驟 1: 驗證資料庫連接');
-    const dbConnected = await DatabaseService.testConnection();
-    if (!dbConnected) {
-      throw new Error('資料庫連接失敗');
-    }
-
-    // 步驟 2: 確保資料表結構
-    automationLogger.info('步驟 2: 確保資料表結構', {
-      tableName: TABLE_NAME,
-    });
-    await TableMigrationService.ensureTableStructure(
-      TABLE_NAME,
-      reimbursementTableSchema,
+    await withAutomationIoTiming(
+      'mssql_test_connection',
+      { target: TABLE_NAME },
+      async () => {
+        const dbConnected = await DatabaseService.testConnection();
+        if (!dbConnected) throw new Error('資料庫連接失敗');
+      },
     );
 
-    // 步驟 3: 登入並下載 Excel
-    automationLogger.info('步驟 3: 登入 COMMEET 並下載 Excel');
+    await withAutomationIoTiming(
+      'mssql_ensure_table',
+      { table: TABLE_NAME },
+      async () => {
+        await TableMigrationService.ensureTableStructure(
+          TABLE_NAME,
+          reimbursementTableSchema,
+        );
+      },
+    );
+
     const commeetService = new CommeetService();
-    const downloadResult = await commeetService.downloadReportFlow(dateRange);
+    const downloadResult = await withAutomationIoTiming(
+      'commeet_download_flow',
+      { dateRange },
+      () => commeetService.downloadReportFlow(dateRange),
+    );
 
     if (!downloadResult.success) {
       throw new Error(`Excel 下載失敗: ${downloadResult.message}`);
@@ -173,22 +198,23 @@ export default defineEventHandler(async (event) => {
       };
     }
 
-    automationLogger.info('Excel 下載成功', {
-      fileName: downloadResult.fileName,
-      bufferSize: downloadResult.buffer.length,
-    });
+    const excelBuffer = downloadResult.buffer;
 
-    // 步驟 4: 解析 Excel
-    automationLogger.info('步驟 4: 解析 Excel');
-    const parsedData = await ExcelService.parseExcelFromBuffer(
-      downloadResult.buffer,
+    const parsedData = await withAutomationIoTiming(
+      'excel_parse_buffer',
+      {
+        fileName: downloadResult.fileName,
+        bufferSize: excelBuffer.length,
+      },
+      () => ExcelService.parseExcelFromBuffer(excelBuffer),
     );
 
-    automationLogger.info('Excel 解析完成', {
+    automationLogger.info('excel_parsed', {
+      job: JOB_NAME,
       totalRows: parsedData.totalRows,
       validRows: parsedData.validRows,
       skippedRows: parsedData.skippedRows,
-      headers: parsedData.headers.slice(0, 10), // 只顯示前 10 個欄位
+      headerSample: parsedData.headers.slice(0, 10),
     });
 
     if (parsedData.rows.length === 0) {
@@ -235,22 +261,19 @@ export default defineEventHandler(async (event) => {
       };
     }
 
-    // 步驟 5: 插入資料庫（複合鍵由 EXPEND_FORM_KEY_SPEC 定義：表單+發票+日期+金額+費用項目+分攤參與部門）
-    // 啟用變更追蹤：自動記錄付款狀態、實際付款日期等欄位的變更
-    automationLogger.info('步驟 5: 插入資料庫（帶變更追蹤）', {
-      tableName: TABLE_NAME,
-      rowCount: parsedData.rows.length,
-      trackedFields: ['付款狀態', '實際付款日期'],
-    });
-
-    const dbResult = await DatabaseService.batchInsertData(
-      parsedData.rows,
-      TABLE_NAME,
+    const dbResult = await withAutomationIoTiming(
+      'mssql_batch_insert',
       {
+        table: TABLE_NAME,
+        rowCount: parsedData.rows.length,
         trackChanges: true,
-        trackedFields: ['付款狀態', '實際付款日期'],
-        changedBy: 'COMMEET_SYNC',
-      }
+      },
+      () =>
+        DatabaseService.batchInsertData(parsedData.rows, TABLE_NAME, {
+          trackChanges: true,
+          trackedFields: ['付款狀態', '實際付款日期'],
+          changedBy: 'COMMEET_SYNC',
+        }),
     );
 
     if (!dbResult.success) {
@@ -259,8 +282,10 @@ export default defineEventHandler(async (event) => {
 
     const duration = Date.now() - startTime;
 
-    automationLogger.info('COMMEET 同步完成', {
-      duration: `${duration}ms`,
+    automationLogger.info('sync_done', {
+      job: JOB_NAME,
+      ok: true,
+      ms: duration,
       insertedCount: dbResult.insertedCount,
       skippedCount: dbResult.skippedCount,
       errorCount: dbResult.errors.length,
