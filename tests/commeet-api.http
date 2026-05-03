@@ -19,6 +19,9 @@ Content-Type: application/json
 
 ### ----------------------------------------------------------
 ### 測試 2：完整同步流程（使用預設日期範圍：COMMEET_SYNC_DEFAULT_DAYS，不帶 body）
+### - 若「今天」為台灣行政機關休假日（tw-holiday），回傳 success + skipped（略過同步）
+### - 手動在假日／週末要跑：body 加 "skipHolidayCheck": true
+### - 關閉假日略過：環境變數 COMMEET_SYNC_SKIP_ON_TW_HOLIDAY=false
 ### - Puppeteer 登入 COMMEET
 ### - 下載 Excel 報表
 ### - 解析 Excel（記憶體中處理）

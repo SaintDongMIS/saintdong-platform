@@ -6,6 +6,7 @@ import { reimbursementTableSchema } from '~/server/services/TableDefinitionServi
 import { automationLogger } from '~/server/services/LoggerService';
 import { EmailService } from '~/server/services/EmailService';
 import { DateHelper } from '~/server/utils/dateHelper';
+import { evaluateCommeetSyncHolidayGate } from '~/server/utils/commeetSyncHolidayGate';
 
 // 資料表名稱
 const TABLE_NAME = 'ExpendForm';
@@ -14,6 +15,8 @@ const JOB_NAME = 'COMMEET_SYNC';
 interface SyncRequestBody {
   dateStart?: string; // YYYY-MM-DD
   dateEnd?: string; // YYYY-MM-DD
+  /** 為 true 時略過台灣行政機關休假日檢查（手動補跑等） */
+  skipHolidayCheck?: boolean;
 }
 
 /**
@@ -29,6 +32,8 @@ interface SyncRequestBody {
  * 5. 記錄變更到 ExpendForm_ChangeLog（付款狀態、實際付款日期等）
  * 
  * 預設日期範圍：由 COMMEET_SYNC_DEFAULT_DAYS 決定（可透過 body 覆寫）
+ *
+ * 排程略過：預設若「今天」為台灣行政機關休假日（tw-holiday），回傳 success 並標示 skipped（見 COMMEET_SYNC_SKIP_ON_TW_HOLIDAY）。
  */
 const DEFAULT_DAYS_MIN = 1;
 const DEFAULT_DAYS_MAX = 180;
@@ -61,6 +66,27 @@ export default defineEventHandler(async (event) => {
     const body = await readBody<SyncRequestBody>(event).catch(
       () => ({}) as SyncRequestBody,
     );
+
+    const holidayGate = await evaluateCommeetSyncHolidayGate({
+      localDateYmd: DateHelper.today(),
+      skipHolidayCheck: body.skipHolidayCheck === true,
+    });
+    if (!holidayGate.proceed) {
+      const duration = Date.now() - startTime;
+      automationLogger.info(
+        `[${JOB_NAME}] 今日 ${holidayGate.localDate} 為台灣行政機關休假日，排程不跑同步（COMMEET_SYNC_SKIP_ON_TW_HOLIDAY 已啟用）。`,
+        { localDate: holidayGate.localDate, durationMs: duration },
+      );
+      return {
+        success: true,
+        skipped: true,
+        message: holidayGate.message,
+        data: {
+          localDate: holidayGate.localDate,
+          duration: `${duration}ms`,
+        },
+      };
+    }
 
     const defaultDays = getDefaultSyncDays();
     const getDefaultDateRange = (): { start: string; end: string } => {
