@@ -65,10 +65,22 @@ export default defineEventHandler(async (event) => {
   };
 
   try {
-    // 解析請求參數（如果沒有提供日期，使用 COMMEET_SYNC_DEFAULT_DAYS）
-    const body = await readBody<SyncRequestBody>(event).catch(
-      () => ({}) as SyncRequestBody,
-    );
+    // readBody 在空 body 時可能 resolve undefined（例如 curl 未帶 -d），需正規化
+    const rawBody = await readBody<SyncRequestBody>(event).catch(() => undefined);
+    const body: SyncRequestBody =
+      rawBody != null &&
+      typeof rawBody === 'object' &&
+      !Array.isArray(rawBody)
+        ? rawBody
+        : {};
+    if (rawBody == null) {
+      automationLogger.debug('sync_request_body_absent', { job: JOB_NAME });
+    } else if (typeof rawBody !== 'object' || Array.isArray(rawBody)) {
+      automationLogger.debug('sync_request_body_ignored_non_object', {
+        job: JOB_NAME,
+        valueType: typeof rawBody,
+      });
+    }
 
     const tHoliday = Date.now();
     const holidayGate = await evaluateCommeetSyncHolidayGate({
@@ -115,7 +127,7 @@ export default defineEventHandler(async (event) => {
     };
 
     dateRange =
-      body?.dateStart && body?.dateEnd
+      body.dateStart && body.dateEnd
         ? { start: body.dateStart, end: body.dateEnd }
         : getDefaultDateRange();
 
