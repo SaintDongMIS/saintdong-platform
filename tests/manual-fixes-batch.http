@@ -1,0 +1,619 @@
+## ============================================================
+## 批次止血：同步付款狀態（由 SQL 清單產生）
+## 端點：POST /api/commeet/manual-update
+## 說明：
+## - 將「同身分證群組內已付款」的資訊，同步到仍未付款/日期空的列
+## - 每筆會寫入 ExpendForm_ChangeLog
+## ============================================================
+## changedBy 固定：ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH（無變數，REST Client 最穩）
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2025-11-25
+## ----------------------------------------------------------
+## REST Client：區隔「多個 HTTP 請求」請只用單獨一行 ###
+## 一般註解請用 ##，勿用 ###，否則會把檔案切成多段並誤送出非 JSON 本文
+
+###
+# @name fix_1308
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1308,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-11-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_1195
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1195,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-11-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_1196
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1196,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-11-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_1096
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1096,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-11-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_1097
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1097,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-11-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2025-12-09
+## ----------------------------------------------------------
+
+###
+# @name fix_1520
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1520,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-12-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2025-12-23
+## ----------------------------------------------------------
+
+###
+# @name fix_1760
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1760,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-12-23" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_2127
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2127,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-12-23" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_2073
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2073,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-12-23" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_1634
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1634,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-12-23" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2025-12-24
+## ----------------------------------------------------------
+
+###
+# @name fix_2062
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2062,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2025-12-24" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-01-02
+## ----------------------------------------------------------
+
+###
+# @name fix_1919
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1919,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-02" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_1915
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 1915,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-02" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-01-15
+## ----------------------------------------------------------
+
+###
+# @name fix_2315
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2315,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_2316
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2316,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_2322
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2322,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_2323
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2323,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_2267
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2267,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-01-30
+## ----------------------------------------------------------
+
+###
+# @name fix_2443
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2443,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-30" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_2444
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 2444,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-01-30" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-03-09
+## ----------------------------------------------------------
+
+###
+# @name fix_5195
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5195,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5196
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5196,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5138
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5138,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5058
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5058,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5043
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5043,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5026
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5026,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5027
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5027,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5028
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5028,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_4893
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 4893,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_4894
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 4894,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_4895
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 4895,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-09" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-03-25
+## ----------------------------------------------------------
+
+###
+# @name fix_4788
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 4788,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5365
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5365,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5366
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5366,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5367
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5367,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_4716
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 4716,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_4676
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 4676,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5283
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5283,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-03-25" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-04-10
+## ----------------------------------------------------------
+
+###
+# @name fix_5425
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5425,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-10" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5428
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5428,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-10" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5429
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5429,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-10" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5430
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5430,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-10" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-04-15
+## ----------------------------------------------------------
+
+###
+# @name fix_5379
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5379,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5380
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5380,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5544
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5544,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5545
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5545,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5546
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5546,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5593
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5593,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5594
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5594,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-15" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+## ----------------------------------------------------------
+## suggested_payment_date_ymd = 2026-04-30
+## ----------------------------------------------------------
+
+###
+# @name fix_5902
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5902,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-30" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+
+###
+# @name fix_5729
+POST http://localhost:3000/api/commeet/manual-update
+Content-Type: application/json
+
+{
+  "efid": 5729,
+  "updates": { "付款狀態": "已付款", "實際付款日期": "2026-04-30" },
+  "changedBy": "ADMIN_JIM_MANUAL_FIX_DUPKEY_BATCH"
+}
+

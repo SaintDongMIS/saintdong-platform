@@ -1,3 +1,4 @@
+import { createError, isError, readRawBody } from 'h3';
 import { DatabaseService } from '~/server/services/DatabaseService';
 import { automationLogger } from '~/server/services/LoggerService';
 
@@ -8,6 +9,45 @@ interface ManualUpdateRequestBody {
   efid: number;
   updates: Record<string, any>;
   changedBy: string;
+}
+
+function parseManualUpdateBody(raw: unknown): ManualUpdateRequestBody {
+  const text =
+    typeof raw === 'string'
+      ? raw
+      : Buffer.isBuffer(raw)
+        ? raw.toString('utf8')
+        : '';
+  const trimmed = text.replace(/^\uFEFF/, '').trim();
+  if (!trimmed) {
+    throw createError({ statusCode: 400, message: '請求本文為空' });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    const preview = trimmed.replace(/\s+/g, ' ').slice(0, 200);
+    throw createError({
+      statusCode: 400,
+      message: `JSON 格式錯誤（前段內容）：${preview}`,
+    });
+  }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed) ||
+    typeof (parsed as ManualUpdateRequestBody).efid !== 'number' ||
+    typeof (parsed as ManualUpdateRequestBody).changedBy !== 'string' ||
+    !(parsed as ManualUpdateRequestBody).updates ||
+    typeof (parsed as ManualUpdateRequestBody).updates !== 'object' ||
+    Array.isArray((parsed as ManualUpdateRequestBody).updates)
+  ) {
+    throw createError({
+      statusCode: 400,
+      message: 'body 必須為 { efid: number, updates: object, changedBy: string }',
+    });
+  }
+  return parsed as ManualUpdateRequestBody;
 }
 
 /**
@@ -36,13 +76,14 @@ interface ManualUpdateRequestBody {
  */
 export default defineEventHandler(async (event) => {
   try {
-    const body = await readBody<ManualUpdateRequestBody>(event);
+    const raw = await readRawBody(event, 'utf8');
+    const body = parseManualUpdateBody(raw ?? '');
 
-    // 驗證必要欄位
-    if (!body.efid || !body.updates || !body.changedBy) {
+    // 驗證必要欄位（updates 空物件仍視為有效，但業務上通常不會發生）
+    if (!body.efid || !body.changedBy.trim()) {
       throw createError({
         statusCode: 400,
-        message: '缺少必要欄位：efid, updates, changedBy',
+        message: '缺少有效欄位：efid（正整數）、updates、changedBy（非空字串）',
       });
     }
 
@@ -81,6 +122,10 @@ export default defineEventHandler(async (event) => {
       },
     };
   } catch (error) {
+    if (isError(error)) {
+      automationLogger.error('手動更新失敗', error);
+      throw error;
+    }
     const errorMessage = error instanceof Error ? error.message : String(error);
     automationLogger.error('手動更新失敗', error);
 

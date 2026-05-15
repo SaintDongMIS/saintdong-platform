@@ -5,6 +5,7 @@ import { dbLogger } from './LoggerService';
 import { safeStringify } from '../utils/safeStringify';
 import { CompositeKeyService } from './CompositeKeyService';
 import { ExpendFormChangeTrackingService } from './ExpendFormChangeTrackingService';
+import { DateHelper } from '../utils/dateHelper';
 
 export interface DatabaseResult {
   success: boolean;
@@ -774,6 +775,170 @@ export class DatabaseService {
         }`,
         details: error,
       };
+    }
+  }
+
+  /**
+   * 手動更新指定 EFid 的欄位，並寫入 ExpendForm_ChangeLog
+   *
+   * 目前僅允許更新 ExpendForm（避免 tableName 被濫用造成 SQL injection）
+   */
+  static async manualUpdateWithTracking(
+    tableName: string,
+    efid: number,
+    updates: Record<string, any>,
+    changedBy: string,
+  ): Promise<void> {
+    if (tableName !== 'ExpendForm') {
+      throw new Error(`manualUpdateWithTracking 不支援資料表: ${tableName}`);
+    }
+    if (!Number.isFinite(efid) || efid <= 0) {
+      throw new Error('efid 不合法');
+    }
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      throw new Error('updates 不合法');
+    }
+    if (!changedBy || typeof changedBy !== 'string') {
+      throw new Error('changedBy 不合法');
+    }
+
+    const pool = await getConnectionPool();
+    const transaction = new sql.Transaction(pool);
+
+    const formatForChangeLog = (value: any): string => {
+      if (value === null || value === undefined) return '';
+      if (value instanceof Date) return DateHelper.toLocalDate(value);
+      return String(value).trim();
+    };
+
+    try {
+      await transaction.begin();
+
+      // 只允許更新資料表中存在的欄位
+      const existingColumns = await this.getExistingColumnsSet(tableName);
+      const filteredUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([col]) => {
+          if (!existingColumns.has(col)) return false;
+          if (col === 'EFid' || col === '建立時間' || col === '更新時間') return false;
+          return true;
+        }),
+      ) as Record<string, any>;
+
+      const updateColumns = Object.keys(filteredUpdates);
+      if (updateColumns.length === 0) {
+        dbLogger.warn('manualUpdateWithTracking: 無可更新欄位（已忽略）', {
+          efid,
+          tableName,
+          requestedColumns: Object.keys(updates),
+        });
+        await transaction.commit();
+        return;
+      }
+
+      // 取出舊資料，用於比對與寫 ChangeLog
+      const selectReq = new sql.Request(transaction);
+      selectReq.input('efid', sql.Int, efid);
+      const selectResult = await selectReq.query(
+        `SELECT TOP 1 * FROM ${tableName} WHERE [EFid] = @efid`,
+      );
+      const existingRow = selectResult.recordset[0];
+      if (!existingRow) {
+        throw new Error(`找不到 EFid=${efid} 的資料`);
+      }
+
+      // 計算實際變更欄位
+      const changeEntries: Array<{
+        fieldName: string;
+        oldValue: string;
+        newValue: string;
+      }> = [];
+      const updateParams: Array<{
+        column: string;
+        sqlType: any;
+        value: any;
+      }> = [];
+
+      for (const col of updateColumns) {
+        const oldVal = existingRow[col];
+        const { sqlType, convertedValue } = this.convertValueForInsert(
+          col,
+          filteredUpdates[col],
+        );
+        const oldStr = formatForChangeLog(oldVal);
+        const newStr = formatForChangeLog(convertedValue);
+        if (oldStr !== newStr) {
+          changeEntries.push({
+            fieldName: col,
+            oldValue: oldStr,
+            newValue: newStr,
+          });
+          updateParams.push({
+            column: col,
+            sqlType,
+            value: convertedValue,
+          });
+        }
+      }
+
+      // 沒有任何實際變更：不 UPDATE，也不寫 ChangeLog
+      if (changeEntries.length === 0) {
+        dbLogger.info('manualUpdateWithTracking: 無欄位變更（已略過）', {
+          efid,
+          tableName,
+          requestedColumns: updateColumns,
+        });
+        await transaction.commit();
+        return;
+      }
+
+      // 1) 更新 ExpendForm
+      const updateReq = new sql.Request(transaction);
+      updateReq.input('efid', sql.Int, efid);
+
+      const setClauses: string[] = [];
+      updateParams.forEach((p, idx) => {
+        const paramName = `p${idx}`;
+        updateReq.input(paramName, p.sqlType, p.value);
+        setClauses.push(`[${p.column}] = @${paramName}`);
+      });
+      setClauses.push('[更新時間] = GETDATE()');
+
+      await updateReq.query(
+        `UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE [EFid] = @efid`,
+      );
+
+      // 2) 寫入 ExpendForm_ChangeLog（每個欄位一筆）
+      const logReq = new sql.Request(transaction);
+      const valuesSql: string[] = [];
+      changeEntries.forEach((e, idx) => {
+        logReq.input(`efid${idx}`, sql.Int, efid);
+        logReq.input(`field${idx}`, sql.NVarChar(100), e.fieldName);
+        logReq.input(`old${idx}`, sql.NVarChar(sql.MAX), e.oldValue || null);
+        logReq.input(`new${idx}`, sql.NVarChar(sql.MAX), e.newValue || null);
+        logReq.input(`by${idx}`, sql.NVarChar(50), changedBy);
+        valuesSql.push(
+          `(@efid${idx}, @field${idx}, @old${idx}, @new${idx}, GETDATE(), @by${idx}, 'UPDATE')`,
+        );
+      });
+
+      await logReq.query(`
+        INSERT INTO ExpendForm_ChangeLog (EFid, FieldName, OldValue, NewValue, ChangedAt, ChangedBy, ChangeType)
+        VALUES ${valuesSql.join(',\n')}
+      `);
+
+      await transaction.commit();
+    } catch (error) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        dbLogger.error('manualUpdateWithTracking: rollback 失敗（可忽略）', rollbackErr);
+      }
+      dbLogger.error('manualUpdateWithTracking 失敗', error, {
+        tableName,
+        efid,
+        updatesPreview: safeStringify(updates, 200),
+      });
+      throw error;
     }
   }
 }
