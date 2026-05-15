@@ -5,7 +5,7 @@ import type { Knex } from 'knex';
  * 如果表中有資料，會將 15 個數量欄位拆成明細記錄
  */
 
-// 項目欄位對應（與 constructionItems.ts 保持一致）
+// 項目欄位對應（與 20260122043113 初始 ItemName 一致）
 const ITEM_FIELD_MAPPING = [
   { field: '拖車租工_數量', itemName: '拖車租工' },
   { field: '台北市拖車運費_數量', itemName: '台北市.拖車運費' },

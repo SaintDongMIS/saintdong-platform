@@ -25,7 +25,7 @@ export async function up(knex: Knex): Promise<void> {
     table.index('DisplayOrder', 'IX_ConstructionItemMaster_DisplayOrder');
   });
 
-  // 插入現有的 15 個項目（從 constructionItems.ts 遷移過來）
+  // 插入初始 15 個施工項目（歷史遷移；對應欄位見 20260122043202）
   await knex(tableName).insert([
     { ItemName: '拖車租工', Unit: '天', Price: 12000, DisplayOrder: 1 },
     { ItemName: '台北市.拖車運費', Unit: '頓', Price: 180, DisplayOrder: 2 },
