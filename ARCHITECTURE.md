@@ -43,11 +43,12 @@
 
 ```
 saintdong-platform/
-├── server/            # Nuxt 3 後端 API (Nitro)
+├── server/            # Nuxt 4 後端 API (Nitro)
 │   ├── api/           # API 路由端點
 │   ├── services/      # 業務邏輯服務
+│   ├── migrations/    # Knex 資料庫遷移腳本
 │   └── config/        # 設定檔
-├── pages/             # Nuxt 3 前端頁面
+├── pages/             # Nuxt 4 前端頁面
 ├── components/        # Vue 組件
 ├── assets/            # 靜態資源
 ├── nuxt.config.ts     # Nuxt 設定檔
@@ -99,7 +100,7 @@ saintdong-platform/
 
 ## 後端架構 (Nuxt Nitro Server)
 
-後端 API 基於 Nuxt 3 內建的 Nitro 伺服器引擎，採用檔案系統路由，開發體驗與前端保持一致。
+後端 API 基於 Nuxt 4 內建的 Nitro 伺服器引擎，採用檔案系統路由，開發體驗與前端保持一致。
 
 ### API 設計
 
@@ -110,6 +111,12 @@ API 端點定義在 `server/api/` 目錄下，例如：
 - `POST /api/bank-convert/analyze`: 國泰整批付款轉檔「分析」（回傳 JSON，比對收款帳號清單與相似戶名候選）。
 - `POST /api/bank-convert`: 國泰整批付款轉檔（Commeet 付款資料 Excel `.xlsx`/`.xls` → 固定寬度 361 bytes + CRLF 之 `.txt`，Big5）。可選帶 `resolutions`（逐列決議：使用清單帳號或 Excel），以確保匯出內容符合使用者在前端的選擇。手動測試步驟見 `docs/BANK_CONVERT_TESTING.md`。
 - `GET /api/finance/reports`: 取得財務報表資料
+- `POST /api/finance/fill-payment-reason`: 付款報表 Excel 事由填補（寫回 ExpendForm 等）
+- `POST /api/commeet/login`: COMMEET 登入驗證（Puppeteer）
+- `POST /api/commeet/sync`: COMMEET 報表同步至 `ExpendForm`（含 `ExpendForm_ChangeLog`）
+- `POST /api/commeet/manual-update`: 手動修正 `ExpendForm` 欄位（含變更追蹤寫入 `ExpendForm_ChangeLog`）
+
+財務頁（`/finance`）目前包含報表管理、資料匯入、網銀付款轉檔、付款報表事由填補等；**已不再提供「施工日報樞紐／施工項目管理」**（相關 API、`Construction*` 服務與資料表已自程式與遷移流程移除）。
 
 **注意**: `create-table` 和 `update-table` 相關的 API 端點已被新的資料庫遷移流程取代，應視為已棄用。
 
@@ -176,6 +183,7 @@ API 端點定義在 `server/api/` 目錄下，例如：
 
 2.  **穩健的資料庫操作 (`DatabaseService`)**:
     - **交易完整性**: 所有資料庫寫入操作皆採用交易 (Transaction)，確保批次匯入的資料要麼全部成功，要麼在發生錯誤時全部回滾，杜絕資料不一致的風險。
+    - **手動欄位更新與審計**: `manualUpdateWithTracking` 僅允許更新 `ExpendForm`，會比對舊值、略過無變更欄位，並將實際變更寫入 `ExpendForm_ChangeLog`（供 COMMEET 同步與 `/api/commeet/manual-update` 等流程使用）。
     - **高效的重複資料檢查**: 採用「複合鍵」概念，並透過單次批次查詢 (`batchCheckExistingData`) 檢查資料庫中所有已存在的紀錄，效能遠高於逐筆檢查。
     - **費用報銷單複合鍵與分攤行處理** (`CompositeKeyService` + `ExpendFormChangeTrackingService`): 費用報銷單一筆表單會對應多列（主列、分攤列、進項稅額列），故用六欄組成複合鍵（表單編號、發票號碼、交易日期、項目原幣金額、費用項目、分攤參與部門）唯一識別一列，以決定 UPDATE 或 INSERT。**分攤行**在 Excel 經 `sanitizeInheritedData` 後 項目原幣金額 被清為 0，但 DB 該列當初以主列金額（如 10737）寫入，若組鍵與查詢都嚴格用「項目原幣金額 = 0」會對不到而重複插入。因此：(1) 組鍵時，若為分攤行（分攤參與部門有值且費用項目為空），將 項目原幣金額 統一為 `0.00`，使 Excel 與 DB 產出的 key 一致；(2) 查詢 DB 時，若為分攤行的 key，WHERE 條件**略過** 項目原幣金額（不篩該欄），只依其餘五欄匹配，才能查到 DB 裡存 10737 的分攤列，再以 key 對應做 UPDATE 而非誤 INSERT。
     - **動態型別對應**: 根據欄位名稱智慧判斷應使用的 SQL 資料類型，確保日期、金額等資料以最正確的格式儲存。
@@ -256,6 +264,7 @@ server/
 ### 資料表設計
 
 - **ExpendForm**: 費用報銷資料表
+- **ExpendForm_ChangeLog**: 費用報銷欄位變更紀錄（COMMEET 同步、手動更新等）
 - **RoadConstructionForm**: 道路施工部資料表
 - **結構管理**: 所有資料表的建立與變更皆由 `knex` 遷移腳本管理。
 - **重複檢查**: 防止重複資料插入
