@@ -113,7 +113,7 @@ API 端點定義在 `server/api/` 目錄下，例如：
 - `GET /api/finance/reports`: 取得財務報表資料
 - `POST /api/finance/fill-payment-reason`: 付款報表 Excel 事由填補（寫回 ExpendForm 等）
 - `POST /api/commeet/login`: COMMEET 登入驗證（Puppeteer）
-- `POST /api/commeet/sync`: COMMEET 報表同步至 `ExpendForm`（含 `ExpendForm_ChangeLog`）
+- `POST /api/commeet/sync`: COMMEET 報表同步至 `ExpendForm`（含 `ExpendForm_ChangeLog`）；UPSERT 完成後會對「同複合鍵 dup 群組」自動對齊付款狀態／實際付款日期（`COMMEET_SYNC_DUP_PAYMENT_ALIGN`）
 - `POST /api/commeet/manual-update`: 手動修正 `ExpendForm` 欄位（含變更追蹤寫入 `ExpendForm_ChangeLog`）
 
 財務頁（`/finance`）目前包含報表管理、資料匯入、網銀付款轉檔、付款報表事由填補等；**已不再提供「施工日報樞紐／施工項目管理」**（相關 API、`Construction*` 服務與資料表已自程式與遷移流程移除）。

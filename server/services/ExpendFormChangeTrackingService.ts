@@ -12,6 +12,7 @@ import type { ExcelRow } from './ExcelService';
 import type { DatabaseResult } from './DatabaseService';
 import { DatabaseService } from './DatabaseService';
 import { CompositeKeyService } from './CompositeKeyService';
+import { ExpendFormDupPaymentAlignService } from './ExpendFormDupPaymentAlignService';
 import { DateHelper } from '../utils/dateHelper';
 import { safeStringify } from '../utils/safeStringify';
 import { dbLogger } from './LoggerService';
@@ -174,6 +175,20 @@ export class ExpendFormChangeTrackingService {
         });
       }
 
+      const alignResult =
+        await ExpendFormDupPaymentAlignService.alignWithinDupGroups(
+          transaction,
+          tableName,
+        );
+      result.dupPaymentAlignedCount = alignResult.alignedRowCount;
+      if (alignResult.alignedRowCount > 0) {
+        dbLogger.info('複合鍵 dup 群組付款狀態對齊完成', {
+          tableName,
+          alignedRowCount: alignResult.alignedRowCount,
+          changeLogEntryCount: alignResult.changeLogEntryCount,
+        });
+      }
+
       await transaction.commit();
       result.success = true;
       dbLogger.info('批次 UPSERT（含變更追蹤）完成', {
@@ -181,6 +196,7 @@ export class ExpendFormChangeTrackingService {
         insertedCount: result.insertedCount,
         skippedCount: result.skippedCount,
         errorCount: result.errors.length,
+        dupPaymentAlignedCount: result.dupPaymentAlignedCount ?? 0,
       });
     } catch (error) {
       result.success = false;

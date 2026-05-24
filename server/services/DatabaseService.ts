@@ -12,6 +12,8 @@ export interface DatabaseResult {
   insertedCount: number;
   skippedCount: number;
   errors: string[];
+  /** COMMEET sync：dup 群組付款狀態自動對齊筆數 */
+  dupPaymentAlignedCount?: number;
 }
 
 export class DatabaseService {

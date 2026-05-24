@@ -44,6 +44,8 @@ export interface AutomationEmailData {
     insertedCount: number;
     skippedCount: number;
     errorCount: number;
+    /** COMMEET sync：dup 群組付款狀態自動對齊筆數 */
+    dupPaymentAlignedCount?: number;
   };
   errors?: string[];
 }
@@ -262,6 +264,10 @@ function buildAutomationDatabaseStatsSection(
   const tableName = databaseStats.tableName
     ? `<div class="info-row"><span class="label">資料表：</span>${databaseStats.tableName}</div>`
     : '';
+  const dupAlign =
+    (databaseStats.dupPaymentAlignedCount ?? 0) > 0
+      ? `<div class="info-row success">dup 群組付款對齊：${databaseStats.dupPaymentAlignedCount} 筆</div>`
+      : '';
 
   return `
     <div class="stats">
@@ -270,6 +276,7 @@ function buildAutomationDatabaseStatsSection(
       <div class="info-row success">成功插入：${databaseStats.insertedCount} 筆</div>
       <div class="info-row warning">跳過（重複）：${databaseStats.skippedCount} 筆</div>
       <div class="info-row ${errorClass}">錯誤數量：${databaseStats.errorCount} 筆</div>
+      ${dupAlign}
     </div>
   `;
 }

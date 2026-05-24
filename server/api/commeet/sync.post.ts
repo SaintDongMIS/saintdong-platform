@@ -301,6 +301,7 @@ export default defineEventHandler(async (event) => {
       insertedCount: dbResult.insertedCount,
       skippedCount: dbResult.skippedCount,
       errorCount: dbResult.errors.length,
+      dupPaymentAlignedCount: dbResult.dupPaymentAlignedCount ?? 0,
     });
 
     sendAutomationNotificationNonBlocking(
@@ -323,6 +324,7 @@ export default defineEventHandler(async (event) => {
           insertedCount: dbResult.insertedCount,
           skippedCount: dbResult.skippedCount,
           errorCount: dbResult.errors.length,
+          dupPaymentAlignedCount: dbResult.dupPaymentAlignedCount ?? 0,
         },
         errors: dbResult.errors.slice(0, 10),
       },
@@ -345,6 +347,7 @@ export default defineEventHandler(async (event) => {
           insertedCount: dbResult.insertedCount,
           skippedCount: dbResult.skippedCount,
           errorCount: dbResult.errors.length,
+          dupPaymentAlignedCount: dbResult.dupPaymentAlignedCount ?? 0,
         },
         errors: dbResult.errors.slice(0, 10), // 只返回前 10 個錯誤
         duration: `${duration}ms`,
