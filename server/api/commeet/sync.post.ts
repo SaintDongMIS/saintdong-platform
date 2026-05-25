@@ -10,10 +10,18 @@ import { evaluateCommeetSyncHolidayGate } from '~/server/utils/commeetSyncHolida
 import {
   withAutomationIoTiming,
 } from '~/server/utils/automationIoLog';
+import { CommeetSyncRunLogCollector } from '~/server/utils/commeetSyncRunLog';
 
 // 資料表名稱
 const TABLE_NAME = 'ExpendForm';
 const JOB_NAME = 'COMMEET_SYNC';
+
+function buildSyncLogAttachment(runLog: CommeetSyncRunLogCollector) {
+  return {
+    filename: runLog.getAttachmentFilename(),
+    content: runLog.toAttachmentContent(),
+  };
+}
 
 interface SyncRequestBody {
   dateStart?: string; // YYYY-MM-DD
@@ -52,6 +60,7 @@ function getDefaultSyncDays(): number {
 export default defineEventHandler(async (event) => {
   const startTime = Date.now();
   let dateRange: { start: string; end: string } | undefined;
+  const runLog = new CommeetSyncRunLogCollector();
 
   const sendAutomationNotificationNonBlocking = (
     payload: Parameters<typeof EmailService.sendAutomationNotification>[0],
@@ -90,6 +99,12 @@ export default defineEventHandler(async (event) => {
     const holidayMs = Date.now() - tHoliday;
     if (!holidayGate.proceed) {
       const duration = Date.now() - startTime;
+      runLog.append('tw_holiday_gate_skipped', {
+        localDate: holidayGate.localDate,
+        message: holidayGate.message,
+        ms: holidayMs,
+        totalMs: duration,
+      });
       automationLogger.info('io_complete', {
         job: JOB_NAME,
         operation: 'tw_holiday_gate',
@@ -135,6 +150,7 @@ export default defineEventHandler(async (event) => {
       job: JOB_NAME,
       dateRange,
     });
+    runLog.append('sync_run', { job: JOB_NAME, dateRange });
 
     await withAutomationIoTiming(
       'mssql_test_connection',
@@ -143,6 +159,7 @@ export default defineEventHandler(async (event) => {
         const dbConnected = await DatabaseService.testConnection();
         if (!dbConnected) throw new Error('資料庫連接失敗');
       },
+      runLog,
     );
 
     await withAutomationIoTiming(
@@ -154,6 +171,7 @@ export default defineEventHandler(async (event) => {
           reimbursementTableSchema,
         );
       },
+      runLog,
     );
 
     const commeetService = new CommeetService();
@@ -161,6 +179,7 @@ export default defineEventHandler(async (event) => {
       'commeet_download_flow',
       { dateRange },
       () => commeetService.downloadReportFlow(dateRange),
+      runLog,
     );
 
     if (!downloadResult.success) {
@@ -169,6 +188,15 @@ export default defineEventHandler(async (event) => {
     // 查無符合條件表單時 COMMEET 回 400「查無此表單」，已視為成功但無 buffer
     if (!downloadResult.buffer) {
       const duration = Date.now() - startTime;
+      runLog.append('sync_done', {
+        ok: true,
+        ms: duration,
+        outcome: 'no_excel_buffer',
+        insertedCount: 0,
+        skippedCount: 0,
+        errorCount: 0,
+        dupPaymentAlignedCount: 0,
+      });
       sendAutomationNotificationNonBlocking(
         {
         success: true,
@@ -187,7 +215,9 @@ export default defineEventHandler(async (event) => {
           insertedCount: 0,
           skippedCount: 0,
           errorCount: 0,
+          dupPaymentAlignedCount: 0,
         },
+        logAttachment: buildSyncLogAttachment(runLog),
         },
         'Email 通知發送失敗（不影響同步流程）',
       );
@@ -219,17 +249,30 @@ export default defineEventHandler(async (event) => {
         bufferSize: excelBuffer.length,
       },
       () => ExcelService.parseExcelFromBuffer(excelBuffer),
+      runLog,
     );
 
-    automationLogger.info('excel_parsed', {
+    const excelParsed = {
       job: JOB_NAME,
       totalRows: parsedData.totalRows,
       validRows: parsedData.validRows,
       skippedRows: parsedData.skippedRows,
       headerSample: parsedData.headers.slice(0, 10),
-    });
+    };
+    automationLogger.info('excel_parsed', excelParsed);
+    runLog.append('excel_parsed', excelParsed);
 
     if (parsedData.rows.length === 0) {
+      const duration = Date.now() - startTime;
+      runLog.append('sync_done', {
+        ok: true,
+        ms: duration,
+        outcome: 'no_valid_rows',
+        insertedCount: 0,
+        skippedCount: 0,
+        errorCount: 0,
+        dupPaymentAlignedCount: 0,
+      });
       sendAutomationNotificationNonBlocking(
         {
           success: true,
@@ -237,7 +280,7 @@ export default defineEventHandler(async (event) => {
           jobName: JOB_NAME,
           runTime: new Date().toISOString(),
           dateRange,
-          duration: `${Date.now() - startTime}ms`,
+          duration: `${duration}ms`,
           fileName: downloadResult.fileName,
           excelStats: {
             totalRows: parsedData.totalRows,
@@ -250,7 +293,9 @@ export default defineEventHandler(async (event) => {
             insertedCount: 0,
             skippedCount: 0,
             errorCount: 0,
+            dupPaymentAlignedCount: 0,
           },
+          logAttachment: buildSyncLogAttachment(runLog),
         },
         'Email 通知發送失敗（不影響同步流程）',
       );
@@ -286,6 +331,7 @@ export default defineEventHandler(async (event) => {
           trackedFields: ['付款狀態', '實際付款日期'],
           changedBy: 'COMMEET_SYNC',
         }),
+      runLog,
     );
 
     if (!dbResult.success) {
@@ -293,16 +339,24 @@ export default defineEventHandler(async (event) => {
     }
 
     const duration = Date.now() - startTime;
+    const dupPaymentAlignedCount = dbResult.dupPaymentAlignedCount ?? 0;
 
-    automationLogger.info('sync_done', {
+    const syncDone = {
       job: JOB_NAME,
       ok: true,
       ms: duration,
       insertedCount: dbResult.insertedCount,
       skippedCount: dbResult.skippedCount,
       errorCount: dbResult.errors.length,
-      dupPaymentAlignedCount: dbResult.dupPaymentAlignedCount ?? 0,
-    });
+      dupPaymentAlignedCount,
+    };
+    automationLogger.info('sync_done', syncDone);
+    runLog.append('sync_done', syncDone);
+    if (dbResult.errors.length > 0) {
+      runLog.append('db_errors_sample', {
+        errors: dbResult.errors.slice(0, 10),
+      });
+    }
 
     sendAutomationNotificationNonBlocking(
       {
@@ -324,9 +378,10 @@ export default defineEventHandler(async (event) => {
           insertedCount: dbResult.insertedCount,
           skippedCount: dbResult.skippedCount,
           errorCount: dbResult.errors.length,
-          dupPaymentAlignedCount: dbResult.dupPaymentAlignedCount ?? 0,
+          dupPaymentAlignedCount,
         },
         errors: dbResult.errors.slice(0, 10),
+        logAttachment: buildSyncLogAttachment(runLog),
       },
       'Email 通知發送失敗（不影響同步流程）',
     );
@@ -356,6 +411,12 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     automationLogger.error('COMMEET 同步失敗', error);
+    runLog.append('sync_failed', {
+      job: JOB_NAME,
+      ok: false,
+      ms: Date.now() - startTime,
+      error: errorMessage,
+    });
 
     sendAutomationNotificationNonBlocking(
       {
@@ -366,6 +427,7 @@ export default defineEventHandler(async (event) => {
         dateRange,
         duration: `${Date.now() - startTime}ms`,
         errors: [errorMessage],
+        logAttachment: buildSyncLogAttachment(runLog),
       },
       '失敗通知 Email 發送失敗（不影響同步流程）',
     );

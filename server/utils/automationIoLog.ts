@@ -1,4 +1,5 @@
 import { automationLogger } from '~/server/services/LoggerService';
+import type { CommeetSyncRunLogCollector } from './commeetSyncRunLog';
 
 const JOB = 'COMMEET_SYNC';
 
@@ -26,26 +27,32 @@ export async function withAutomationIoTiming<T>(
   operation: string,
   extra: Record<string, unknown> | undefined,
   fn: () => Promise<T>,
+  runLog?: CommeetSyncRunLogCollector,
 ): Promise<T> {
   const t0 = Date.now();
   const base = { job: JOB, operation, ...(extra ?? {}) };
   automationLogVerbose('io_start', base);
+  runLog?.append('io_start', base);
 
   try {
     const result = await fn();
-    automationLogger.info('io_complete', {
+    const complete = {
       ...base,
       ok: true,
       ms: Date.now() - t0,
-    });
+    };
+    automationLogger.info('io_complete', complete);
+    runLog?.append('io_complete', complete);
     return result;
   } catch (error) {
-    automationLogger.warn('io_complete', {
+    const complete = {
       ...base,
       ok: false,
       ms: Date.now() - t0,
       error: error instanceof Error ? error.message : String(error),
-    });
+    };
+    automationLogger.warn('io_complete', complete);
+    runLog?.append('io_complete', complete);
     throw error;
   }
 }

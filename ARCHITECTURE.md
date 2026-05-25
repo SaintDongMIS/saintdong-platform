@@ -113,8 +113,8 @@ API 端點定義在 `server/api/` 目錄下，例如：
 - `GET /api/finance/reports`: 取得財務報表資料
 - `POST /api/finance/fill-payment-reason`: 付款報表 Excel 事由填補（寫回 ExpendForm 等）
 - `POST /api/commeet/login`: COMMEET 登入驗證（Puppeteer）
-- `POST /api/commeet/sync`: COMMEET 報表同步至 `ExpendForm`（含 `ExpendForm_ChangeLog`）；UPSERT 完成後會對「同複合鍵 dup 群組」自動對齊付款狀態／實際付款日期（`COMMEET_SYNC_DUP_PAYMENT_ALIGN`）
-- `POST /api/commeet/manual-update`: 手動修正 `ExpendForm` 欄位（含變更追蹤寫入 `ExpendForm_ChangeLog`）
+- `POST /api/commeet/sync`: COMMEET 報表同步至 `ExpendForm`（含 `ExpendForm_ChangeLog`）。流程：Puppeteer 登入 → 下載 Excel → 解析 → `ExpendFormChangeTrackingService` 批次 UPSERT；**同一 transaction 結束前**由 `ExpendFormDupPaymentAlignService` 掃描全表 dup 群組並對齊「付款狀態／實際付款日期」（`ChangedBy = COMMEET_SYNC_DUP_PAYMENT_ALIGN`）。回應與通知信含 `databaseStats.dupPaymentAlignedCount`。
+- `POST /api/commeet/manual-update`: 手動修正單筆 `ExpendForm`（含變更追蹤寫入 `ExpendForm_ChangeLog`）；適用緊急止血或單筆修正（`tests/manual-fixes*.http`）。
 
 財務頁（`/finance`）目前包含報表管理、資料匯入、網銀付款轉檔、付款報表事由填補等；**已不再提供「施工日報樞紐／施工項目管理」**（相關 API、`Construction*` 服務與資料表已自程式與遷移流程移除）。
 
@@ -183,9 +183,10 @@ API 端點定義在 `server/api/` 目錄下，例如：
 
 2.  **穩健的資料庫操作 (`DatabaseService`)**:
     - **交易完整性**: 所有資料庫寫入操作皆採用交易 (Transaction)，確保批次匯入的資料要麼全部成功，要麼在發生錯誤時全部回滾，杜絕資料不一致的風險。
-    - **手動欄位更新與審計**: `manualUpdateWithTracking` 僅允許更新 `ExpendForm`，會比對舊值、略過無變更欄位，並將實際變更寫入 `ExpendForm_ChangeLog`（供 COMMEET 同步與 `/api/commeet/manual-update` 等流程使用）。
+    - **手動欄位更新與審計**: `manualUpdateWithTracking` 僅允許更新 `ExpendForm`，會比對舊值、略過無變更欄位，並將實際變更寫入 `ExpendForm_ChangeLog`（供 `/api/commeet/manual-update` 使用）。
     - **高效的重複資料檢查**: 採用「複合鍵」概念，並透過單次批次查詢 (`batchCheckExistingData`) 檢查資料庫中所有已存在的紀錄，效能遠高於逐筆檢查。
-    - **費用報銷單複合鍵與分攤行處理** (`CompositeKeyService` + `ExpendFormChangeTrackingService`): 費用報銷單一筆表單會對應多列（主列、分攤列、進項稅額列），故用六欄組成複合鍵（表單編號、發票號碼、交易日期、項目原幣金額、費用項目、分攤參與部門）唯一識別一列，以決定 UPDATE 或 INSERT。**分攤行**在 Excel 經 `sanitizeInheritedData` 後 項目原幣金額 被清為 0，但 DB 該列當初以主列金額（如 10737）寫入，若組鍵與查詢都嚴格用「項目原幣金額 = 0」會對不到而重複插入。因此：(1) 組鍵時，若為分攤行（分攤參與部門有值且費用項目為空），將 項目原幣金額 統一為 `0.00`，使 Excel 與 DB 產出的 key 一致；(2) 查詢 DB 時，若為分攤行的 key，WHERE 條件**略過** 項目原幣金額（不篩該欄），只依其餘五欄匹配，才能查到 DB 裡存 10737 的分攤列，再以 key 對應做 UPDATE 而非誤 INSERT。
+    - **費用報銷單複合鍵與分攤行處理** (`CompositeKeyService` + `ExpendFormChangeTrackingService`): 費用報銷單一筆表單會對應多列（主列、分攤列、進項稅額列），故用六欄組成複合鍵（表單編號、發票號碼、交易日期、項目原幣金額、費用項目、分攤參與部門）唯一識別一列，以決定 UPDATE 或 INSERT。**分攤行**在 Excel 經 `sanitizeInheritedData` 後 項目原幣金額 被清為 0，但 DB 該列當初以主列金額（如 10737）寫入，若組鍵與查詢都嚴格用「項目原幣金額 = 0」會對不到而重複插入。因此：(1) 組鍵時，若為分攤行（分攤參與部門有值且費用項目為空），將 項目原幣金額 統一為 `0.00`，使 Excel 與 DB 產出的 key 一致；(2) 查詢 DB 時，若為分攤行的 key，WHERE 條件**略過** 項目原幣金額（不篩該欄），只依其餘五欄匹配，才能查到 DB 裡存 10737 的分攤列，再以 key 對應做 UPDATE 而非誤 INSERT。同步 UPSERT 時 `batchQueryExistingData` 對**同一複合鍵若有多列**僅保留一列於 Map，故歷史上可能出現「同鍵多列、付款狀態不一致」；見下方 dup 對齊。
+    - **dup 群組付款狀態對齊** (`ExpendFormDupPaymentAlignService`): 在 `executeBatchUpsertWithTracking` 完成後、transaction commit 前執行。以六欄正規化（與手動止血 SQL 相同：`HAVING COUNT(*) > 1`）找出 dup 群組；若群內已有「已付款」且具「實際付款日期」，則將同群內「未付款或日期空」的列改為已付款，日期取群內 `MAX(實際付款日期)`。僅升級補齊、不 downgrade。凡 `batchInsertData(..., { trackChanges: true })` 的 `ExpendForm` 寫入（含 COMMEET sync、財務上傳 pipeline）皆會觸發。
     - **動態型別對應**: 根據欄位名稱智慧判斷應使用的 SQL 資料類型，確保日期、金額等資料以最正確的格式儲存。
 
 3.  **資料庫結構管理 (`TableDefinitionService` + `Knex.js`)**:
@@ -203,23 +204,43 @@ server/
 │   ├── upload/
 │   │   ├── finance.post.ts                # 財務部上傳
 │   │   └── road-construction.post.ts      # 道路施工部上傳
+│   ├── commeet/
+│   │   ├── login.post.ts                  # COMMEET 登入（Puppeteer）
+│   │   ├── sync.post.ts                   # COMMEET 同步 + 通知信
+│   │   └── manual-update.post.ts          # 手動單筆修正
 │   ├── create-table.post.ts               # 財務部資料表建立
 │   ├── create-table-road-construction.post.ts  # 道路施工部資料表建立
 │   └── ...
 ├── services/         # 核心業務邏輯
 │   ├── DatabaseService.ts
+│   ├── CommeetService.ts                  # COMMEET 登入與 Excel 下載
+│   ├── ExpendFormChangeTrackingService.ts # ExpendForm UPSERT + ChangeLog
+│   ├── ExpendFormDupPaymentAlignService.ts # dup 群組付款狀態對齊
+│   ├── CompositeKeyService.ts
 │   ├── ExcelService.ts                    # 財務部 Excel 解析
-│   ├── RoadConstructionExcelService.ts   # 道路施工部 Excel 解析（新增）
+│   ├── RoadConstructionExcelService.ts   # 道路施工部 Excel 解析
+│   ├── EmailService.ts                    # 上傳與自動化排程通知
 │   ├── TableDefinitionService.ts         # 統一管理所有資料表 Schema
 │   └── TableMigrationService.ts          # 資料表遷移（支援多部門）
-├── utils/            # 工具函數
-│   ├── uploadProcessor.ts                # 通用上傳處理器（新增）
+├── utils/
+│   ├── automationIoLog.ts                # COMMEET sync I/O 計時與 log
+│   ├── commeetSyncRunLog.ts               # 單次 sync 摘要（通知信 txt 附件）
+│   ├── uploadProcessor.ts
 │   ├── fileUploadHandler.ts
 │   └── errorHandler.ts
-└── config/           # 設定檔
+├── constants/
+│   ├── compositeKey.ts                   # ExpendForm 六欄複合鍵定義
+│   └── emailTemplates.ts                 # 上傳／自動化通知 HTML
+└── config/
     ├── database.ts
-    ├── departmentConfig.ts               # 部門配置系統（新增）
+    ├── departmentConfig.ts
+    ├── commeetSelectors.ts
     └── bankCodes.json
+
+tests/
+├── commeet-api.http                       # COMMEET 手動測試
+├── manual-fixes.http                      # 單筆手動修正範例
+└── manual-fixes-batch.http                # 批次止血（dup 付款）範例
 ```
 
 ## 資料流設計
@@ -241,6 +262,20 @@ server/
 6. 批次插入資料庫（使用交易）
 7. 回傳上傳結果
 ```
+
+### COMMEET 同步流程（`POST /api/commeet/sync`）
+
+```
+1. （可選）台灣休假日 gate → 略過則結束
+2. 測試 DB 連線、確保 ExpendForm 結構
+3. Puppeteer 登入 COMMEET → 下載指定期間 Excel（記憶體 Buffer）
+4. ExcelService 解析 → 有效列批次 UPSERT（ExpendFormChangeTrackingService，追蹤付款狀態／實際付款日期）
+5. 同一 transaction：ExpendFormDupPaymentAlignService 全表掃描 dup 群組並對齊付款欄位 → commit
+6. 回傳 JSON（含 databaseStats.dupPaymentAlignedCount）
+7. 非阻塞寄信：HTML 統計 + CommeetSyncRunLogCollector 產生的 .txt 附件
+```
+
+手動驗證：`tests/commeet-api.http`。歷史 dup 不一致亦可先用 `tests/manual-fixes-batch.http` 單筆修正（`ChangedBy` 與自動對齊不同，便於區分）。
 
 ### 資料存取流程
 
@@ -264,7 +299,7 @@ server/
 ### 資料表設計
 
 - **ExpendForm**: 費用報銷資料表
-- **ExpendForm_ChangeLog**: 費用報銷欄位變更紀錄（COMMEET 同步、手動更新等）
+- **ExpendForm_ChangeLog**: 費用報銷欄位變更紀錄。常見 `ChangedBy`：`COMMEET_SYNC`（Excel UPSERT 追蹤欄位）、`COMMEET_SYNC_DUP_PAYMENT_ALIGN`（dup 群組付款對齊）、`ADMIN_*`（手動 `/api/commeet/manual-update` 或 `.http` 批次止血）
 - **RoadConstructionForm**: 道路施工部資料表
 - **結構管理**: 所有資料表的建立與變更皆由 `knex` 遷移腳本管理。
 - **重複檢查**: 防止重複資料插入
@@ -436,16 +471,32 @@ chore: 建置工具或輔助工具的變動
 - **COMMEET_AUTO_SYNC_ENABLED**: 是否啟用排程自動同步（cron）；`true` 啟用、`false` 僅手動同步。
 - **COMMEET_SYNC_DEFAULT_DAYS**: 同步 API 未帶 `dateStart`/`dateEnd` 時的預設抓取天數（1～180），預設為 7。
 - **排程時間（NAS Docker）**: 排程定義在 `docker/crontab`，並以容器內 `TZ=Asia/Taipei`（台灣時間）為準。目前設定為每天 **08:30、14:30** 呼叫 `POST /api/commeet/sync`。
-- **排程日誌（NAS Docker）**: `docker/crontab` 會將執行時間戳與 API 回應（含 HTTP code）寫入 `/var/log/commeet-sync.log`（容器內檔案）。
+- **排程日誌（NAS Docker）**: `docker/crontab` 會將執行時間戳與 API 回應（含 HTTP code）寫入 `/var/log/commeet-sync.log`（容器內檔案）。完整同步摘要以**通知信附件**為主；應用細節另見 `docker logs` 或上述 `.txt` 附件。
+- **COMMEET_SYNC_SKIP_ON_TW_HOLIDAY**: 預設休假日略過 sync（回傳 `skipped: true`、不寄信）；手動補跑可於 body 帶 `skipHolidayCheck: true`（見 `tests/commeet-api.http`）。
 
-### Email 通知（同步結果）
+### Email 通知（COMMEET 同步結果）
 
-`/api/commeet/sync` 在成功/失敗時都會嘗試寄出「自動化排程執行結果」通知信（寄信失敗不影響同步主流程）。
+`/api/commeet/sync` 在成功/失敗（含「無資料需處理」）時都會嘗試寄出「自動化排程執行結果」通知信（寄信失敗不影響同步主流程）。模板見 `server/constants/emailTemplates.ts`（`buildAutomationEmailHtml`）。
+
+**信內統計（HTML）**
+
+- Excel：總行數、有效行數、跳過行數、欄位樣本
+- 資料庫：`insertedCount`、`skippedCount`、`errorCount`、**`dupPaymentAlignedCount`（永遠顯示，含 0）**
+- 執行時間、同步日期範圍、下載檔名、錯誤摘要（最多 10 筆）
+
+**附件（單次執行摘要 `.txt`）**
+
+- `CommeetSyncRunLogCollector`（`server/utils/commeetSyncRunLog.ts`）於該次 sync 累積結構化 log（`sync_run`、各 `io_start`/`io_complete`、`excel_parsed`、`sync_done` 等），檔名例：`COMMEET_SYNC-2026-05-25_03-13-27.txt`
+- 非完整 Terminal dump；與 `automationLogger` 的 `sync_done` 欄位可互相對照
+- 詳細 Puppeteer 步驟在 production 預設為 DEBUG 級，不一定寫入附件
+
+**SMTP 環境變數**
 
 - **DISABLE_EMAIL**: `true`/`1` 時停用寄信。
 - **EMAIL_TO**: 收件人，可用逗號分隔多個 email。
 - **SMTP_HOST / SMTP_PORT / SMTP_FROM**: SMTP 連線設定。
 - **SMTP_USER / SMTP_PASSWORD**: 若 SMTP 需要帳密則設定；未設定 `SMTP_USER` 時會以匿名方式連線（適用內網 SMTP）。
+- **LOG_LEVEL**: 影響 `automationIoLog` 在 production 是否輸出 `io_start` 細項至 console（不影響附件摘要）。
 
 ## 監控與維護
 

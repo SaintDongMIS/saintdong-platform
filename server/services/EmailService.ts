@@ -210,6 +210,11 @@ export class EmailService {
     to: string[];
     subject: string;
     html: string;
+    attachments?: Array<{
+      filename: string;
+      content: string;
+      contentType?: string;
+    }>;
   } {
     const recipient = process.env.EMAIL_TO!;
     const recipients = recipient.split(',').map((email) => email.trim());
@@ -218,11 +223,22 @@ export class EmailService {
       ? `[${automationData.jobName}] 自動化排程執行成功通知`
       : `[${automationData.jobName}] 自動化排程執行失敗通知`;
 
+    const attachments = automationData.logAttachment
+      ? [
+          {
+            filename: automationData.logAttachment.filename,
+            content: automationData.logAttachment.content,
+            contentType: 'text/plain; charset=utf-8',
+          },
+        ]
+      : undefined;
+
     return {
       from: smtpFrom,
       to: recipients,
       subject: emailSubject,
       html: buildAutomationEmailHtml(automationData),
+      attachments,
     };
   }
 
@@ -234,6 +250,11 @@ export class EmailService {
     to: string[];
     subject: string;
     html: string;
+    attachments?: Array<{
+      filename: string;
+      content: string | Buffer;
+      contentType?: string;
+    }>;
   }): Promise<any> {
     const transporter = this.getTransporter();
 

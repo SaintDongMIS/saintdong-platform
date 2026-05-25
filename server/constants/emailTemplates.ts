@@ -48,6 +48,11 @@ export interface AutomationEmailData {
     dupPaymentAlignedCount?: number;
   };
   errors?: string[];
+  /** 單次執行摘要（.txt 附件） */
+  logAttachment?: {
+    filename: string;
+    content: string;
+  };
 }
 
 /**
@@ -264,10 +269,8 @@ function buildAutomationDatabaseStatsSection(
   const tableName = databaseStats.tableName
     ? `<div class="info-row"><span class="label">資料表：</span>${databaseStats.tableName}</div>`
     : '';
-  const dupAlign =
-    (databaseStats.dupPaymentAlignedCount ?? 0) > 0
-      ? `<div class="info-row success">dup 群組付款對齊：${databaseStats.dupPaymentAlignedCount} 筆</div>`
-      : '';
+  const dupCount = databaseStats.dupPaymentAlignedCount ?? 0;
+  const dupAlignClass = dupCount > 0 ? 'success' : '';
 
   return `
     <div class="stats">
@@ -276,7 +279,7 @@ function buildAutomationDatabaseStatsSection(
       <div class="info-row success">成功插入：${databaseStats.insertedCount} 筆</div>
       <div class="info-row warning">跳過（重複）：${databaseStats.skippedCount} 筆</div>
       <div class="info-row ${errorClass}">錯誤數量：${databaseStats.errorCount} 筆</div>
-      ${dupAlign}
+      <div class="info-row ${dupAlignClass}">dup 群組付款對齊：${dupCount} 筆</div>
     </div>
   `;
 }
@@ -340,6 +343,7 @@ export function buildAutomationEmailHtml(data: AutomationEmailData): string {
       ${buildErrorsSection(data.errors)}
     </div>
     <div class="footer">
+      ${data.logAttachment ? `<p>附件：${data.logAttachment.filename}（本次執行摘要）</p>` : ''}
       <p>此為系統自動發送的通知郵件，請勿回覆。</p>
       <p>SaintDong Platform - 企業內部管理系統</p>
     </div>
