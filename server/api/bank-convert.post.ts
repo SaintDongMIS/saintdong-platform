@@ -21,38 +21,10 @@ import {
   applyPayeeResolutionsToWireRows,
   type BankWirePayeeResolutionInput,
 } from '../utils/applyBankWirePayeeResolutions';
-
-function taipeiDateParts(now: Date): {
-  year: string;
-  month: string;
-  day: string;
-  hour: string;
-  minute: string;
-  second: string;
-} {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Taipei',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
-  const parts = dtf.formatToParts(now);
-  return {
-    year: parts.find((p) => p.type === 'year')?.value || '1970',
-    month: parts.find((p) => p.type === 'month')?.value || '01',
-    day: parts.find((p) => p.type === 'day')?.value || '01',
-    hour: parts.find((p) => p.type === 'hour')?.value || '00',
-    minute: parts.find((p) => p.type === 'minute')?.value || '00',
-    second: parts.find((p) => p.type === 'second')?.value || '00',
-  };
-}
+import { getTaipeiDateTimeParts } from '../../utils/bankWireScheduledTransDate';
 
 function createBankWireBatchId(now: Date): string {
-  const { year, month, day, hour, minute, second } = taipeiDateParts(now);
+  const { year, month, day, hour, minute, second } = getTaipeiDateTimeParts(now);
   const ts = `${year}${month}${day}-${hour}${minute}${second}`;
   const suffix = crypto
     .randomBytes(3)
@@ -63,7 +35,7 @@ function createBankWireBatchId(now: Date): string {
 }
 
 function createBankWireDownloadFilename(now: Date): string {
-  const { month, day, hour, minute } = taipeiDateParts(now);
+  const { month, day, hour, minute } = getTaipeiDateTimeParts(now);
   const timestamp = `${month}${day}${hour}${minute}`;
   return `commeet整批付款_${timestamp}.txt`;
 }

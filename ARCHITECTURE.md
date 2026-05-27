@@ -123,7 +123,7 @@ API 端點定義在 `server/api/` 目錄下，例如：
 ### 核心服務
 
 - **檔案上傳處理**: 驗證並解析 Excel 檔案。
-- **國泰整批付款轉檔** (`BankConverterService` + `server/constants/bankConverterConfig.ts` / `bankConverterExcelConfig.ts`): 將 Commeet「付款資料」工作表對應為國泰上傳格式；輸出每行 361 bytes，手續費 13/15 仍由 `HandlingFeeService.isSpecialCompany`（依 Excel `戶名`）決定。
+- **國泰整批付款轉檔** (`BankConverterService` + `server/constants/bankConverterConfig.ts` / `bankConverterExcelConfig.ts`): 將 Commeet「付款資料」工作表對應為國泰上傳格式；輸出每行 361 bytes，手續費 13/15 仍由 `HandlingFeeService.isSpecialCompany`（依 Excel `戶名`）決定；預定交易日期依操作當下台北時間，當月為「15 日或當月最後一日」。
 - **收款帳號清單比對（網銀轉檔）**: 透過 `Payee_Accounts`（「收款帳號清單」）比對收款人資訊：先依帳號（必要時再加銀行代碼縮窄）找清單列；再用 Fuse.js 依戶名提供相似候選，供使用者在前端做決議。當清單無此帳號但有相似戶名時，分析狀態會標為 `name_hint_only`，代表僅供參考且預設使用 Excel。
 - **資料庫操作**: 透過 `DatabaseService` 執行 SQL 操作。
 - **資料表定義**: 透過 `TableDefinitionService` 統一管理資料表 Schema。

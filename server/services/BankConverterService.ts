@@ -12,10 +12,10 @@ import {
   sumAmount14Strings,
 } from '../../utils/bankWireMerge';
 import { isSpecialPayeeCompany } from '../../utils/specialPayeeCompany';
+import { getScheduledTransDateYmd } from '../../utils/bankWireScheduledTransDate';
 import type { BankWireLedgerRow } from './BankWireExportLogService';
 
 interface ParsedBankLine {
-  date: string;
   transType: string;
   bankCode: string;
   payerAccountDigits: string;
@@ -46,7 +46,10 @@ export class BankConverterService {
   /**
    * 產生固定寬度輸出行（361 bytes）
    */
-  private convertLine(parsed: ParsedBankLine): Buffer {
+  private convertLine(
+    parsed: ParsedBankLine,
+    scheduledTransDateYmd: string
+  ): Buffer {
     // 建立 361 bytes 的空白行（全部填空白）
     const out = Buffer.alloc(this.lineLength, 0x20); // 0x20 = 空格
 
@@ -55,14 +58,14 @@ export class BankConverterService {
     // 識別代碼 [0]
     out.write('0', pos.RECORD_TYPE.start, 1, 'ascii');
 
-    // 預定交易日期 [9..16] (8)：固定使用當前日期（YYYYMMDD）
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    const currentDate = `${year}${month}${day}`;
-    const outDate = currentDate.padEnd(8, ' ').slice(0, 8);
-    out.write(outDate, pos.TRANS_DATE.start, pos.TRANS_DATE.length, 'ascii');
+    // 預定交易日期 [9..16] (8)：依台北操作日 → 當月 15 或當月最後一日
+    // 同一次轉檔請求外層已計算（避免跨日界造成同一 TXT 混入不同日期）
+    out.write(
+      scheduledTransDateYmd.padEnd(8, ' ').slice(0, 8),
+      pos.TRANS_DATE.start,
+      pos.TRANS_DATE.length,
+      'ascii'
+    );
 
     // 交易類別 [17..19] (3) SPU/TRN
     out.write(
@@ -221,6 +224,8 @@ export class BankConverterService {
     const ledgerRows: BankWireLedgerRow[] = [];
     const outLines: Buffer[] = [];
 
+    const scheduledTransDateYmd = getScheduledTransDateYmd();
+
     for (let i = 0; i < groups.length; i++) {
       const group = groups[i]!;
       const mergedLineIndex = i + 1;
@@ -260,7 +265,6 @@ export class BankConverterService {
       );
 
       const parsed: ParsedBankLine = {
-        date: '19700101',
         transType: cfg.TRANS_TYPE,
         bankCode: cfg.PAYER_BANK_CODE_3,
         payerAccountDigits: cfg.PAYER_ACCOUNT_DIGITS.replace(/\D/g, ''),
@@ -272,7 +276,7 @@ export class BankConverterService {
         receiveNameText: normalizePayeeName(first.payeeName),
       };
 
-      outLines.push(this.convertLine(parsed));
+      outLines.push(this.convertLine(parsed, scheduledTransDateYmd));
     }
 
     logger.info('Excel 轉檔統計', {
