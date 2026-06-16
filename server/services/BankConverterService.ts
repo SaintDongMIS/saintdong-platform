@@ -7,9 +7,10 @@ import {
   readCommeetSheetMatrix,
 } from '../../utils/commeetBankExcelParse';
 import {
-  groupCommeetWireRowsByPayeeName,
+  groupWireRowsForExport,
   normalizePayeeName,
   sumAmount14Strings,
+  type WireMergeMode,
 } from '../../utils/bankWireMerge';
 import { isSpecialPayeeCompany } from '../../utils/specialPayeeCompany';
 import { getScheduledTransDateYmd } from '../../utils/bankWireScheduledTransDate';
@@ -185,8 +186,11 @@ export class BankConverterService {
    */
   convertExcelBuffer(
     inputBuffer: Buffer,
-    options?: { excludedFormNos?: Set<string> }
-  ): { outputBuffer: Buffer; ledgerRows: BankWireLedgerRow[] } {
+    options?: {
+      excludedFormNos?: Set<string>;
+      payeeAccountIdByRowIndex?: Map<number, number>;
+    }
+  ): { outputBuffer: Buffer; ledgerRows: BankWireLedgerRow[]; scheduledTxDateYmd: string } {
     const cfg = BankConverterExcelConfig;
     const sheet = readCommeetSheetMatrix(inputBuffer, cfg);
     if (!sheet.ok) {
@@ -211,20 +215,38 @@ export class BankConverterService {
       skippedInvalid: number;
       totalDataRows: number;
     },
-    options?: { excludedFormNos?: Set<string> }
-  ): { outputBuffer: Buffer; ledgerRows: BankWireLedgerRow[] } {
+    options?: {
+      excludedFormNos?: Set<string>;
+      excludedRowIndexes?: Set<number>;
+      payeeAccountIdByRowIndex?: Map<number, number>;
+      lineNoteByRowIndex?: Map<number, string>;
+      scheduledTxDateYmd?: string;
+      mergeMode?: WireMergeMode;
+    }
+  ): { outputBuffer: Buffer; ledgerRows: BankWireLedgerRow[]; scheduledTxDateYmd: string } {
     const cfg = BankConverterExcelConfig;
     const excluded = options?.excludedFormNos ?? new Set<string>();
+    const excludedRowIndexes = options?.excludedRowIndexes ?? new Set<number>();
+    const payeeAccountIdByRowIndex = options?.payeeAccountIdByRowIndex;
+    const lineNoteByRowIndex = options?.lineNoteByRowIndex;
+    const mergeMode = options?.mergeMode ?? 'by_payee_name';
     let skippedExcluded = 0;
-    for (const row of extracted.rows) {
-      if (excluded.has(row.formNo)) skippedExcluded++;
+    for (let i = 0; i < extracted.rows.length; i++) {
+      const row = extracted.rows[i]!;
+      if (excluded.has(row.formNo) || excludedRowIndexes.has(i)) skippedExcluded++;
     }
 
-    const groups = groupCommeetWireRowsByPayeeName(extracted.rows, excluded);
+    const groups = groupWireRowsForExport(extracted.rows, {
+      excludedFormNos: excluded,
+      excludedRowIndexes,
+      mergeMode,
+    });
     const ledgerRows: BankWireLedgerRow[] = [];
     const outLines: Buffer[] = [];
 
-    const scheduledTransDateYmd = getScheduledTransDateYmd();
+    const scheduledTransDateYmd =
+      options?.scheduledTxDateYmd?.replace(/\D/g, '').slice(0, 8) ||
+      getScheduledTransDateYmd();
 
     for (let i = 0; i < groups.length; i++) {
       const group = groups[i]!;
@@ -241,11 +263,20 @@ export class BankConverterService {
             firstPayeeBankCode7: first.payeeBankCode7,
           });
         }
+        const rowIndex = extracted.rows.indexOf(r);
+        const payeeAccountId =
+          rowIndex >= 0 && payeeAccountIdByRowIndex
+            ? payeeAccountIdByRowIndex.get(rowIndex) ?? null
+            : null;
         ledgerRows.push({
           mergedLineIndex,
           payeeName: normalizePayeeName(r.payeeName),
           payeeAccountDigits: r.accountDigits,
           bankCodeDigits: r.bankDigits,
+          branchCode: r.branchDigits4,
+          payeeBankCode7: r.payeeBankCode7,
+          payeeAccountId,
+          lineNote: (rowIndex >= 0 && lineNoteByRowIndex?.get(rowIndex)) || null,
           formNo: r.formNo,
           amountCents: parseInt(r.amount14, 10) || 0,
         });
@@ -308,7 +339,7 @@ export class BankConverterService {
     const outputBuffer = Buffer.concat(
       outLines.flatMap((l) => [l, crlf])
     );
-    return { outputBuffer, ledgerRows };
+    return { outputBuffer, ledgerRows, scheduledTxDateYmd: scheduledTransDateYmd };
   }
 
   /**

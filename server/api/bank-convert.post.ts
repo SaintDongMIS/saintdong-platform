@@ -23,6 +23,22 @@ import {
 } from '../utils/applyBankWirePayeeResolutions';
 import { getTaipeiDateTimeParts } from '../../utils/bankWireScheduledTransDate';
 
+function buildPayeeAccountIdMap(
+  resolutions: BankWirePayeeResolutionInput[] | null
+): Map<number, number> | undefined {
+  if (!resolutions?.length) return undefined;
+  const map = new Map<number, number>();
+  for (const r of resolutions) {
+    if (r.kind === 'master' && r.payeeAccountId) {
+      const id = parseInt(String(r.payeeAccountId), 10);
+      if (Number.isFinite(id)) {
+        map.set(r.rowIndex, id);
+      }
+    }
+  }
+  return map.size > 0 ? map : undefined;
+}
+
 function createBankWireBatchId(now: Date): string {
   const { year, month, day, hour, minute, second } = getTaipeiDateTimeParts(now);
   const ts = `${year}${month}${day}-${hour}${minute}${second}`;
@@ -161,10 +177,13 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    const payeeAccountIdByRowIndex = buildPayeeAccountIdMap(resolutionsPayload);
+
     // 轉換檔案
     const converter = new BankConverterService();
     let outputBuffer: Buffer;
     let ledgerRows: BankWireLedgerRow[];
+    let scheduledTxDateYmd: string;
     try {
       if (resolutionsPayload && resolutionsPayload.length > 0) {
         const cfg = BankConverterExcelConfig;
@@ -188,16 +207,19 @@ export default defineEventHandler(async (event) => {
         assertWireGroupsSamePayeeBankCode7(resolvedRows, excludedFormNos);
         const result = converter.convertFromExtractedWireRows(
           { ...extracted, rows: resolvedRows },
-          { excludedFormNos }
+          { excludedFormNos, payeeAccountIdByRowIndex }
         );
         outputBuffer = result.outputBuffer;
         ledgerRows = result.ledgerRows;
+        scheduledTxDateYmd = result.scheduledTxDateYmd;
       } else {
         const result = converter.convertExcelBuffer(inputBuffer, {
           excludedFormNos,
+          payeeAccountIdByRowIndex,
         });
         outputBuffer = result.outputBuffer;
         ledgerRows = result.ledgerRows;
+        scheduledTxDateYmd = result.scheduledTxDateYmd;
       }
     } catch (convertError: any) {
       apiLogger.error('檔案轉換失敗', convertError, {
@@ -222,7 +244,12 @@ export default defineEventHandler(async (event) => {
       await insertBankWireExportLedger(
         batchId,
         uploadedFile.originalname,
-        ledgerRows
+        ledgerRows,
+        {
+          batchType: 'commeet',
+          scheduledTxDateYmd,
+          alreadyUploaded: false,
+        }
       );
     } catch (logErr: any) {
       apiLogger.error('匯出紀錄寫入失敗', logErr, { batchId });

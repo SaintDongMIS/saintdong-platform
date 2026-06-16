@@ -94,3 +94,6 @@ Thumbs.db
 # Uploaded files
 uploads/
 temp/
+
+# Playwright MCP session artifacts
+.playwright-mcp/

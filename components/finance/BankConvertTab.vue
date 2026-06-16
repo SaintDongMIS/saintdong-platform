@@ -24,101 +24,13 @@
       </p>
     </div>
 
-    <!-- 匯出紀錄（僅讀取 DB，與預覽 state 分離） -->
-    <div
-      class="mt-5 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50/80 to-white overflow-hidden shadow-sm"
-    >
-      <button
-        type="button"
-        class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50/90 transition-colors"
-        @click="historyOpen = !historyOpen"
-      >
-        <span class="flex items-center gap-2 text-sm font-semibold text-slate-800">
-          <svg
-            class="w-5 h-5 text-slate-500 shrink-0"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          最近匯出紀錄
-          <span class="text-xs font-normal text-slate-500">（資料庫）</span>
-        </span>
-        <span class="text-slate-400 text-xs tabular-nums shrink-0">
-          {{ historyRows.length }} 筆列
-        </span>
-      </button>
-      <div
-        v-show="historyOpen"
-        class="border-t border-slate-100 px-3 pb-3 pt-2"
-      >
-        <div class="flex justify-end mb-2">
-          <button
-            type="button"
-            class="text-xs font-medium text-green-700 hover:text-green-900 px-2 py-1 rounded-md hover:bg-green-50 transition-colors"
-            :disabled="historyLoading"
-            @click="refreshHistory"
-          >
-            {{ historyLoading ? '載入中…' : '重新載入' }}
-          </button>
-        </div>
-        <div
-          v-if="!historyLoading && historyRows.length === 0"
-          class="text-center text-sm text-slate-500 py-6"
-        >
-          尚無匯出紀錄
-        </div>
-        <div
-          v-else
-          class="overflow-x-auto max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white"
-        >
-          <table class="min-w-[760px] w-full text-xs text-left">
-            <thead class="sticky top-0 bg-slate-100/95 text-slate-700 font-semibold border-b border-slate-200">
-              <tr>
-                <th class="px-2 py-2 whitespace-nowrap">匯出時間</th>
-                <th class="px-2 py-2">批次</th>
-                <th class="px-2 py-2">檔名</th>
-                <th class="px-2 py-2 text-center">合併序號</th>
-                <th class="px-2 py-2">表單編號</th>
-                <th class="px-2 py-2">戶名</th>
-                <th class="px-2 py-2 text-right">金額</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr
-                v-for="h in historyRows"
-                :key="h.id"
-                class="hover:bg-slate-50/80"
-              >
-                <td class="px-2 py-1.5 text-slate-600 whitespace-nowrap font-mono">
-                  {{ formatExportedAt(h.exportedAt) }}
-                </td>
-                <td class="px-2 py-1.5 font-mono text-slate-700 text-[10px] max-w-[7rem] truncate" :title="h.batchId">
-                  {{ h.batchId }}
-                </td>
-                <td class="px-2 py-1.5 text-slate-700 max-w-[10rem] truncate" :title="h.sourceFilename">
-                  {{ h.sourceFilename }}
-                </td>
-                <td class="px-2 py-1.5 text-center tabular-nums">{{ h.mergedLineIndex }}</td>
-                <td class="px-2 py-1.5 font-mono text-slate-800">{{ h.formNo }}</td>
-                <td class="px-2 py-1.5 text-slate-800 max-w-[8rem] truncate" :title="h.payeeName">
-                  {{ h.payeeName }}
-                </td>
-                <td class="px-2 py-1.5 text-right tabular-nums text-slate-900">
-                  {{ formatCtsDisplay(h.amountCents) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+    <FinanceBankWireExportLogPanel
+      ref="historyPanelRef"
+      class="mt-5"
+      accent="green"
+      :compact="true"
+      title="最近匯出紀錄"
+    />
 
     <FileUploadZone
       :selected-file="upload.selectedFile.value"
@@ -674,7 +586,8 @@ import { handlingFeeAllocationForPayee } from '~/utils/specialPayeeCompany';
 const { success, error, warning } = useToast();
 
 const API_EXPORTED_FORM_NOS = '/api/bank-wire-export-log/exported-form-nos';
-const API_HISTORY = '/api/bank-wire-export-log?limit=150';
+
+const historyPanelRef = ref<{ refresh: () => Promise<void> } | null>(null);
 const API_ANALYZE = '/api/bank-convert/analyze';
 
 /** 清單無此帳號、僅相似戶名時的完整說明（整批只顯示一次） */
@@ -742,47 +655,6 @@ interface MergedPreviewGroup {
   formCount: number;
 }
 
-interface ExportLogRow {
-  id: string;
-  batchId: string;
-  exportedAt: string;
-  sourceFilename: string;
-  mergedLineIndex: number;
-  payeeName: string;
-  payeeAccountDigits: string | null;
-  bankCodeDigits: string | null;
-  formNo: string;
-  amountCents: string;
-}
-
-function formatCtsDisplay(amountCents: string): string {
-  const cents = parseInt(amountCents, 10);
-  if (!Number.isFinite(cents)) return amountCents;
-  const yuan = Math.floor(cents / 100);
-  const dec = cents % 100;
-  return (
-    yuan.toLocaleString('zh-TW', { maximumFractionDigits: 0 }) +
-    '.' +
-    String(dec).padStart(2, '0')
-  );
-}
-
-function formatExportedAt(isoLike: string): string {
-  if (!isoLike) return '—';
-  const d = new Date(isoLike);
-  if (Number.isNaN(d.getTime())) return isoLike.slice(0, 19).replace('T', ' ');
-  return new Intl.DateTimeFormat('zh-TW', {
-    timeZone: 'Asia/Taipei',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(d);
-}
-
 const parseError = ref('');
 const isParsingPreview = ref(false);
 const parseMeta = ref<{
@@ -796,9 +668,6 @@ const analysisError = ref('');
 const resolutionDraft = ref<Record<number, WireResolutionUi>>({});
 const showOtherCandidates = ref<Record<number, boolean>>({});
 const exportedFormNoSet = ref<Set<string>>(new Set());
-const historyRows = ref<ExportLogRow[]>([]);
-const historyLoading = ref(false);
-const historyOpen = ref(true);
 
 async function refreshExportedFormNos() {
   try {
@@ -810,20 +679,6 @@ async function refreshExportedFormNos() {
     );
   } catch {
     /* 離線或 DB 未就緒時略過 */
-  }
-}
-
-async function refreshHistory() {
-  historyLoading.value = true;
-  try {
-    const r = await fetch(API_HISTORY);
-    if (!r.ok) return;
-    const data = (await r.json()) as { rows?: ExportLogRow[] };
-    historyRows.value = data.rows ?? [];
-  } catch {
-    /* 略過 */
-  } finally {
-    historyLoading.value = false;
   }
 }
 
@@ -1162,7 +1017,6 @@ watch(
 
 onMounted(() => {
   refreshExportedFormNos();
-  refreshHistory();
 });
 
 function onClearFile() {
@@ -1318,7 +1172,7 @@ const handleConvert = async () => {
 
     success('轉換完成！檔案已下載');
     await refreshExportedFormNos();
-    await refreshHistory();
+    await historyPanelRef.value?.refresh();
     upload.clearFile();
     clearPreview();
   } catch (err: unknown) {

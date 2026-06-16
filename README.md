@@ -4,19 +4,20 @@
 
 ## 專案架構
 
-本專案採用 Nuxt.js 3 的整合式架構，將前端與後端 API 開發整合在同一個專案中。
+本專案採用 Nuxt 4 的整合式架構，將前端與後端 API 開發整合在同一個專案中。
 
 ```
 saintdong-platform/
-├── server/            # Nuxt 3 後端 API (Nitro)
-├── pages/             # Nuxt 3 前端頁面
-├── components/        # Vue 組件
-└── nuxt.config.ts     # Nuxt 設定檔
+├── server/            # Nuxt 後端 API (Nitro)
+├── pages/             # 前端頁面
+├── components/        # Vue 組件（含 components/finance/ 財務模組）
+├── utils/             # 共用工具（含匯款解析、log 顯示）
+└── nuxt.config.ts
 ```
 
 ## 技術棧
 
-- **框架**: Nuxt.js 3 (Vue 3)
+- **框架**: Nuxt 4 (Vue 3)
 - **樣式**: Tailwind CSS
 - **語言**: TypeScript
 - **部署**: Synology NAS (Docker) / Google Cloud Platform (App Engine)
@@ -27,9 +28,7 @@ saintdong-platform/
 ### 1. 複製環境變數範本
 
 ```bash
-# 開發環境
 cp .env.example .env
-
 ```
 
 ### 2. 編輯環境變數
@@ -37,7 +36,6 @@ cp .env.example .env
 編輯 `.env` 檔案，填入實際的資料庫連接資訊：
 
 ```bash
-# 開發環境範例
 DB_SERVER=
 DB_PORT=
 DB_USER=
@@ -45,12 +43,17 @@ DB_PASSWORD=your_actual_password
 DB_DATABASE=
 
 # Email 通知設定（可選）
-SMTP_HOST=sg2.bim-group.com
-SMTP_PORT=25
-SMTP_USER=mailsystem
-SMTP_PASSWORD=A23265946
-EMAIL_TO=jimwuu01@gmail.com,jim51114@yahoo.com.tw
+SMTP_HOST=
+SMTP_PORT=
+SMTP_USER=
+SMTP_PASSWORD=
+EMAIL_TO=
 ```
+
+### 3. 執行環境
+
+- **開發環境**: 本機 `yarn dev`
+- **正式環境**: Synology NAS (Docker) / GCP App Engine
 
 ## 開發原則
 
@@ -61,20 +64,23 @@ EMAIL_TO=jimwuu01@gmail.com,jim51114@yahoo.com.tw
 
 ## 功能模組
 
-### 財務部門
+### 財務部門（`/finance`）
 
-- Excel 檔案上傳功能
-- 檔案管理與檢視
+| 功能 | 說明 |
+|------|------|
+| 報表管理 | 財務報表檢視 |
+| 資料匯入 | Excel 上傳寫入 `ExpendForm` |
+| **網銀付款轉檔** | Commeet「付款資料」Excel → 國泰整批 TXT；比對 `Payee_Accounts`；曾匯出表單預設不轉 |
+| **臨時整批匯款** | 會計 Payment 匯款 Excel／貼上 → TXT；支援合併與 log 重複比對 |
+| **匯款事後登錄** | 國泰已匯完、當時未經平台 → 補寫 `BankWireExport_Log`（不產 TXT） |
+| 付款報表事由填補 | 付款報表 Excel 事由寫回資料庫 |
+
+三條匯款管道（Commeet／臨時／事後登錄）皆寫入同一張 **`BankWireExport_Log`**；財務各 tab 共用「匯款匯出紀錄」面板（類型篩選、搜尋、交易日等）。
 
 ### 未來擴展
 
 - MIS 部門功能
 - 管理部門功能
-
-## 環境設定
-
-- **開發環境**: 本機開發
-- **正式環境**: Synology NAS (Docker) / GCP App Engine
 
 ## 快速開始
 
@@ -93,10 +99,18 @@ yarn build
 
 - **Excel 上傳與解析**: 支援財務報銷單 Excel 檔案上傳，並解析其內容。
 - **資料庫整合**: 將解析後的資料寫入 Microsoft SQL Server 的 `ExpendForm` 資料表。
+- **國泰整批匯款轉檔**: Commeet 或臨時清單產出固定寬度 TXT；匯出紀錄寫入 `BankWireExport_Log`（`batch_type`: `commeet` / `adhoc` / `manual_backfill`）。
+- **收款帳號清單比對**: 轉檔前比對 `Payee_Accounts`，減少分行／帳號錯誤。
 - **動態資料表管理**: 提供 API 端點，可動態建立或更新資料庫中的資料表結構。
-- **智能結構遷移**: 使用 ALTER TABLE 方式安全地新增欄位，保留現有資料。
+- **智能結構遷移**: 使用 Knex migration 安全地新增欄位，保留現有資料。
 - **業界標準 Logger**: 使用結構化日誌記錄，便於監控和除錯。
 - **設定檔管理**: 將銀行代碼等設定資訊外部化為 JSON 檔案，易於維護。
+
+### 單元測試（匯款相關）
+
+```bash
+node --import tsx --test utils/__tests__/bankWire*.test.ts utils/__tests__/backfillPasteParse.test.ts
+```
 
 ## 部署
 

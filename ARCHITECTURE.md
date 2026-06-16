@@ -75,7 +75,7 @@ saintdong-platform/
 
 本專案採 Nuxt 的標準目錄（非獨立 `frontend/` 專案）：
 
-- `components/`: 共用組件
+- `components/`: 共用組件（財務匯款見 `components/finance/`）
 - `pages/`: 頁面路由
 - `layouts/`: 佈局模板
 - `composables/`: 組合式函數
@@ -109,14 +109,20 @@ API 端點定義在 `server/api/` 目錄下，例如：
 - `POST /api/upload/finance`: 處理財務部檔案上傳
 - `POST /api/upload/road-construction`: 處理道路施工部檔案上傳
 - `POST /api/bank-convert/analyze`: 國泰整批付款轉檔「分析」（回傳 JSON，比對收款帳號清單與相似戶名候選）。
-- `POST /api/bank-convert`: 國泰整批付款轉檔（Commeet 付款資料 Excel `.xlsx`/`.xls` → 固定寬度 361 bytes + CRLF 之 `.txt`，Big5）。可選帶 `resolutions`（逐列決議：使用清單帳號或 Excel），以確保匯出內容符合使用者在前端的選擇。手動測試步驟見 `docs/BANK_CONVERT_TESTING.md`。
+- `POST /api/bank-convert`: 國泰整批付款轉檔（Commeet 付款資料 Excel → 固定寬度 361 bytes + CRLF 之 `.txt`，Big5）。可選帶 `resolutions`（逐列決議：使用清單帳號或 Excel）。寫入 `BankWireExport_Log`（`batch_type=commeet`）。
+- `POST /api/bank-adhoc/analyze`: 臨時整批匯款分析（Payment Excel／貼上 → 比對 `Payee_Accounts` + log 重複比對）。
+- `POST /api/bank-adhoc`: 臨時整批匯款轉檔（產 TXT + 寫 log，`batch_type=adhoc`）。
+- `GET /api/bank-wire-export-log`: 匯款匯出紀錄列表（`limit`、`batchType`、`q` 搜尋）。
+- `GET /api/bank-wire-export-log/exported-form-nos`: 曾匯出之 Commeet 表單編號（防重複用）。
+- `POST /api/bank-wire-export-log/backfill`: 事後登錄（僅寫 log，`batch_type=manual_backfill`，`already_uploaded=1`）。
+- `POST /api/bank-wire-export-log/backfill/preview`: 事後登錄預覽（不寫 DB）。
 - `GET /api/finance/reports`: 取得財務報表資料
 - `POST /api/finance/fill-payment-reason`: 付款報表 Excel 事由填補（寫回 ExpendForm 等）
 - `POST /api/commeet/login`: COMMEET 登入驗證（Puppeteer）
 - `POST /api/commeet/sync`: COMMEET 報表同步至 `ExpendForm`（含 `ExpendForm_ChangeLog`）。流程：Puppeteer 登入 → 下載 Excel → 解析 → `ExpendFormChangeTrackingService` 批次 UPSERT；**同一 transaction 結束前**由 `ExpendFormDupPaymentAlignService` 掃描全表 dup 群組並對齊「付款狀態／實際付款日期」（`ChangedBy = COMMEET_SYNC_DUP_PAYMENT_ALIGN`）。回應與通知信含 `databaseStats.dupPaymentAlignedCount`。
 - `POST /api/commeet/manual-update`: 手動修正單筆 `ExpendForm`（含變更追蹤寫入 `ExpendForm_ChangeLog`）；適用緊急止血或單筆修正（`tests/manual-fixes*.http`）。
 
-財務頁（`/finance`）目前包含報表管理、資料匯入、網銀付款轉檔、付款報表事由填補等；**已不再提供「施工日報樞紐／施工項目管理」**（相關 API、`Construction*` 服務與資料表已自程式與遷移流程移除）。
+財務頁（`/finance`）目前包含：**報表管理**、**資料匯入**、**網銀付款轉檔**（Commeet）、**臨時整批匯款**（會計 Payment）、**匯款事後登錄**、**付款報表事由填補**。三條匯款流程共用 `BankWireExport_Log` 與前端元件 `FinanceBankWireExportLogPanel`（類型篩選、搜尋、交易日／已上傳等欄位）。**已不再提供「施工日報樞紐／施工項目管理」**（相關 API、`Construction*` 服務與資料表已自程式與遷移流程移除）。
 
 **注意**: `create-table` 和 `update-table` 相關的 API 端點已被新的資料庫遷移流程取代，應視為已棄用。
 
@@ -124,6 +130,9 @@ API 端點定義在 `server/api/` 目錄下，例如：
 
 - **檔案上傳處理**: 驗證並解析 Excel 檔案。
 - **國泰整批付款轉檔** (`BankConverterService` + `server/constants/bankConverterConfig.ts` / `bankConverterExcelConfig.ts`): 將 Commeet「付款資料」工作表對應為國泰上傳格式；輸出每行 361 bytes，手續費 13/15 仍由 `HandlingFeeService.isSpecialCompany`（依 Excel `戶名`）決定；預定交易日期依操作當下台北時間，當月為「15 日或當月最後一日」。
+- **臨時整批匯款** (`utils/adhocPaymentExcelParse.ts`、`utils/adhocBankWireParse.ts`、`BankConverterService.convertFromExtractedWireRows`): 會計 Payment 匯款工作表或 6 欄貼上；可手選交易日、合併模式；`batch_type=adhoc`。
+- **匯款匯出紀錄** (`BankWireExportLogService`、`BankWireBackfillService`): 同一請求產 TXT 時寫入明細列；事後登錄僅補 DB。欄位含七碼、分行、`scheduled_tx_date`、`line_note`、`already_uploaded` 等（見 migration `20260616120000_expand_bank_wire_export_log`）。
+- **匯款重複比對** (`utils/bankWireLogDuplicateMatch.ts`、`BankWireLogDuplicateService`): 臨時／事後登錄 analyze 時，以帳號＋金額＋戶名比對全 log；交易日 7 日內為強重複，UI 預設排除（Commeet 仍以 `form_no` 為主）。
 - **收款帳號清單比對（網銀轉檔）**: 透過 `Payee_Accounts`（「收款帳號清單」）比對收款人資訊：先依帳號（必要時再加銀行代碼縮窄）找清單列；再用 Fuse.js 依戶名提供相似候選，供使用者在前端做決議。當清單無此帳號但有相似戶名時，分析狀態會標為 `name_hint_only`，代表僅供參考且預設使用 Excel。
 - **資料庫操作**: 透過 `DatabaseService` 執行 SQL 操作。
 - **資料表定義**: 透過 `TableDefinitionService` 統一管理資料表 Schema。
@@ -196,6 +205,29 @@ API 端點定義在 `server/api/` 目錄下，例如：
 4.  **結構化的日誌系統 (`LoggerService`)**:
     - 提供帶有時間戳、服務來源、日誌級別的結構化日誌，便於後續的問題追蹤與系統監控。
 
+### 國泰整批匯款資料流
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+│ Commeet Excel   │────▶│ bank-convert     │────▶│ TXT 下載            │
+│ (網銀付款轉檔)   │     │ batch_type=commeet│     │ + BankWireExport_Log│
+└─────────────────┘     └──────────────────┘     └─────────────────────┘
+
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+│ Payment Excel   │────▶│ bank-adhoc       │────▶│ TXT 下載            │
+│ 或貼上 (臨時)    │     │ batch_type=adhoc  │     │ + log + 重複比對    │
+└─────────────────┘     └──────────────────┘     └─────────────────────┘
+
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+│ 貼上已匯清單     │────▶│ backfill         │────▶│ 僅 BankWireExport_Log│
+│ (事後登錄)       │     │ manual_backfill   │     │ already_uploaded=1  │
+└─────────────────┘     └──────────────────┘     └─────────────────────┘
+         │                        │
+         └────────────────────────┴──▶ Payee_Accounts（唯讀比對）
+```
+
+前端元件：`components/finance/BankConvertTab.vue`、`BankAdhocTab.vue`、`BankWireBackfillTab.vue`；共用 `FinanceBankWireExportLogPanel.vue`（Nuxt 自動註冊名須含 `Finance` 前綴）。
+
 ### 檔案結構
 
 ```
@@ -204,6 +236,11 @@ server/
 │   ├── upload/
 │   │   ├── finance.post.ts                # 財務部上傳
 │   │   └── road-construction.post.ts      # 道路施工部上傳
+│   ├── bank-convert.post.ts               # Commeet 網銀轉檔
+│   ├── bank-convert/analyze.post.ts
+│   ├── bank-adhoc.post.ts                 # 臨時整批匯款
+│   ├── bank-adhoc/analyze.post.ts
+│   ├── bank-wire-export-log/              # 匯出紀錄查詢、事後登錄
 │   ├── commeet/
 │   │   ├── login.post.ts                  # COMMEET 登入（Puppeteer）
 │   │   ├── sync.post.ts                   # COMMEET 同步 + 通知信
@@ -213,6 +250,10 @@ server/
 │   └── ...
 ├── services/         # 核心業務邏輯
 │   ├── DatabaseService.ts
+│   ├── BankConverterService.ts            # 國泰 TXT 產生
+│   ├── BankWireExportLogService.ts        # BankWireExport_Log 寫入／查詢
+│   ├── BankWireBackfillService.ts         # 事後登錄列組裝
+│   ├── BankWireLogDuplicateService.ts     # log 重複比對
 │   ├── CommeetService.ts                  # COMMEET 登入與 Excel 下載
 │   ├── ExpendFormChangeTrackingService.ts # ExpendForm UPSERT + ChangeLog
 │   ├── ExpendFormDupPaymentAlignService.ts # dup 群組付款狀態對齊
@@ -300,6 +341,8 @@ tests/
 
 - **ExpendForm**: 費用報銷資料表
 - **ExpendForm_ChangeLog**: 費用報銷欄位變更紀錄。常見 `ChangedBy`：`COMMEET_SYNC`（Excel UPSERT 追蹤欄位）、`COMMEET_SYNC_DUP_PAYMENT_ALIGN`（dup 群組付款對齊）、`ADMIN_*`（手動 `/api/commeet/manual-update` 或 `.http` 批次止血）
+- **BankWireExport_Log**: 國泰整批匯款匯出／事後登錄明細帳。`batch_type`: `commeet` | `adhoc` | `manual_backfill`；一列一筆明細（合併前），同次下載共用 `batch_id`。
+- **Payee_Accounts**: 收款帳號清單（轉檔 analyze 唯讀比對）
 - **RoadConstructionForm**: 道路施工部資料表
 - **結構管理**: 所有資料表的建立與變更皆由 `knex` 遷移腳本管理。
 - **重複檢查**: 防止重複資料插入
