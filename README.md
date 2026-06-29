@@ -126,7 +126,7 @@ FINANCE_SESSION_SECRET=your_random_session_secret_here
 
 ### P0 — 維運／上線
 
-- [ ] **NAS 部署檢查清單**：`deploy.sh`／部署段落補上 `FINANCE_PASSWORD`、`FINANCE_SESSION_SECRET`（缺則財務登入 503）
+- [ ] **NAS 部署檢查清單**：`.env` 需有 `FINANCE_PASSWORD`、`FINANCE_SESSION_SECRET`；內網 HTTP 勿設 `FINANCE_COOKIE_SECURE=true`（否則 cookie 寫不進瀏覽器）
 
 ### P1 — 財務登入（體驗／安全／稽核）
 

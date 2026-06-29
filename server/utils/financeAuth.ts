@@ -85,6 +85,28 @@ export function getFinanceAuthSecrets() {
   };
 }
 
+/** HTTP 內網（如 NAS :3000）不可設 Secure cookie；HTTPS 反代可設 x-forwarded-proto 或 FINANCE_COOKIE_SECURE=true */
+export function financeCookieSecure(event?: H3Event): boolean {
+  const raw = process.env.FINANCE_COOKIE_SECURE?.toLowerCase();
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  if (event) {
+    const forwarded = getRequestHeader(event, 'x-forwarded-proto')?.split(',')[0]?.trim();
+    if (forwarded === 'https') return true;
+  }
+  return false;
+}
+
+function financeSessionCookieOptions(event: H3Event) {
+  return {
+    httpOnly: true,
+    secure: financeCookieSecure(event),
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: FINANCE_SESSION_MAX_AGE_SEC,
+  };
+}
+
 export function getFinanceUserFromEvent(event: H3Event): FinanceUser | null {
   const { secret } = getFinanceAuthSecrets();
   if (!secret) return null;
@@ -105,15 +127,9 @@ export function setFinanceSessionCookie(event: H3Event, username: FinanceUser) {
   }
 
   const token = createFinanceSessionToken(username, secret);
-  setCookie(event, FINANCE_SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: FINANCE_SESSION_MAX_AGE_SEC,
-  });
+  setCookie(event, FINANCE_SESSION_COOKIE, token, financeSessionCookieOptions(event));
 }
 
 export function clearFinanceSessionCookie(event: H3Event) {
-  deleteCookie(event, FINANCE_SESSION_COOKIE, { path: '/' });
+  deleteCookie(event, FINANCE_SESSION_COOKIE, financeSessionCookieOptions(event));
 }

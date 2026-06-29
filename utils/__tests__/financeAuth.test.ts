@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createFinanceSessionToken,
+  financeCookieSecure,
   isFinanceProtectedApiPath,
   parseFinanceSessionToken,
   verifyFinanceCredentials,
@@ -33,5 +34,16 @@ describe('financeAuth', () => {
     assert.equal(parseFinanceSessionToken(token, secret, now + 1000), 'Jim');
     assert.equal(parseFinanceSessionToken(token, secret, now + 8 * 60 * 60 * 1000 + 1), null);
     assert.equal(parseFinanceSessionToken(token, 'wrong-secret', now + 1000), null);
+  });
+
+  it('defaults cookie secure to false on plain HTTP NAS', () => {
+    const prev = process.env.FINANCE_COOKIE_SECURE;
+    delete process.env.FINANCE_COOKIE_SECURE;
+    try {
+      assert.equal(financeCookieSecure(), false);
+    } finally {
+      if (prev === undefined) delete process.env.FINANCE_COOKIE_SECURE;
+      else process.env.FINANCE_COOKIE_SECURE = prev;
+    }
   });
 });
