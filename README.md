@@ -51,6 +51,10 @@ SMTP_PORT=
 SMTP_USER=
 SMTP_PASSWORD=
 EMAIL_TO=
+
+# 財務部登入（帳號 Jim / Sam / Finance）
+FINANCE_PASSWORD=your_finance_password_here
+FINANCE_SESSION_SECRET=your_random_session_secret_here
 ```
 
 ### 3. 執行環境
@@ -71,27 +75,27 @@ EMAIL_TO=
 
 全公司各部門共用的**圖文 + YouTube 影片**教學，與財務／後端 API 邏輯無關。
 
-| 路由 | 說明 |
-|------|------|
-| `/tutorial` | 教學目錄（依系列分組，顯示上架狀態） |
+| 路由               | 說明                                         |
+| ------------------ | -------------------------------------------- |
+| `/tutorial`        | 教學目錄（依系列分組，顯示上架狀態）         |
 | `/tutorial/[slug]` | 單集教學頁（影片嵌入、時間軸跳轉、詳解卡片） |
 
 **COMMEET 通用篇（已上架 5 集）：**
 
-| 集數 | slug | 主題 |
-|------|------|------|
-| 一 | `commmeet-general-01` | 首次登入與簽核代理人設定 |
-| 二 | `commmeet-general-02` | 三種最常使用表單的介紹 |
-| 三 | `commmeet-general-03` | 費用申請單與費用報銷單 |
-| 五 | `commmeet-general-05` | 手機與電腦申請費用報銷單 |
-| 六 | `commmeet-general-06` | 手機與電腦簽核單據 |
+| 集數 | slug                  | 主題                     |
+| ---- | --------------------- | ------------------------ |
+| 一   | `commmeet-general-01` | 首次登入與簽核代理人設定 |
+| 二   | `commmeet-general-02` | 三種最常使用表單的介紹   |
+| 三   | `commmeet-general-03` | 費用申請單與費用報銷單   |
+| 五   | `commmeet-general-05` | 手機與電腦申請費用報銷單 |
+| 六   | `commmeet-general-06` | 手機與電腦簽核單據       |
 
 > 官方播放清單另有「通用篇（四）」，本站系列尚未納入。
 
 **待上架：**
 
-| 系列 | slug | 主題 |
-|------|------|------|
+| 系列         | slug                  | 主題     |
+| ------------ | --------------------- | -------- |
 | 財會篇（二） | `commmeet-finance-02` | 付款報表 |
 
 **新增一集教學：**
@@ -105,23 +109,51 @@ EMAIL_TO=
 
 ### 財務部門（`/finance`）
 
-| 功能 | 說明 |
-|------|------|
-| 報表管理 | 財務報表檢視 |
-| 資料匯入 | Excel 上傳寫入 `ExpendForm` |
+需登入後使用（帳號 `Jim` / `Sam` / `Finance`，密碼見 `.env` 的 `FINANCE_PASSWORD`）。Session 有效 **8 小時**；未登入時 `/finance` 顯示登入卡，finance 相關 API 回傳 401。
+
+| 功能             | 說明                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| 報表管理         | 財務報表檢視                                                                       |
+| 資料匯入         | Excel 上傳寫入 `ExpendForm`                                                        |
 | **網銀付款轉檔** | Commeet「付款資料」Excel → 國泰整批 TXT；比對 `Payee_Accounts`；曾匯出表單預設不轉 |
-| **臨時整批匯款** | 會計 Payment 匯款 Excel／貼上 → TXT；支援合併與 log 重複比對 |
-| **匯款事後登錄** | 國泰已匯完、當時未經平台 → 補寫 `BankWireExport_Log`（不產 TXT） |
-| 付款報表事由填補 | 付款報表 Excel 事由寫回資料庫 |
+| **臨時整批匯款** | 會計 Payment 匯款 Excel／貼上 → TXT；支援合併與 log 重複比對                       |
+| **匯款事後登錄** | 國泰已匯完、當時未經平台 → 補寫 `BankWireExport_Log`（不產 TXT）                   |
+| 付款報表事由填補 | 付款報表 Excel 事由寫回資料庫                                                      |
 
 三條匯款管道（Commeet／臨時／事後登錄）皆寫入同一張 **`BankWireExport_Log`**；財務各 tab 共用「匯款匯出紀錄」面板（類型篩選、搜尋、交易日等）。
 
-### 未來擴展
+## TODO（依優先度）
 
-- COMMEET 財會篇（二）付款報表
-- COMMEET 通用篇（四）（待評估是否納入系列）
-- MIS 部門功能
-- 管理部門功能
+### P0 — 維運／上線
+
+- [ ] **NAS 部署檢查清單**：`deploy.sh`／部署段落補上 `FINANCE_PASSWORD`、`FINANCE_SESSION_SECRET`（缺則財務登入 503）
+
+### P1 — 財務登入（體驗／安全／稽核）
+
+- [ ] **Session 過期 UX**：API 401 時前端統一跳回登入卡並提示「請重新登入」（避免 tab 只顯示載入失敗）
+- [ ] **登入失敗 rate limit**：同 IP 短時間多次錯誤暫時鎖定
+- [ ] **操作軌跡 log**：middleware 記 `username` + method + path（必要時 query 摘要；不 log 上傳內容）
+- [ ] **報表查詢稽核**：記篩選條件、頁碼等（目前僅 log 登入／登出／失敗）
+
+### P2 — 教學中心
+
+- [ ] **COMMEET 財會篇（二）**：`commmeet-finance-02` 付款報表上架（時間軸逐秒對齊）
+- [ ] **COMMEET 通用篇（四）**：評估是否納入系列、補 `commmeet-general-04`
+- [ ] **集數跳號說明**：系列 1→2→3→5→6，目錄是否註明「四未收錄」
+
+### P3 — 文件／測試／基礎建設
+
+- [ ] **`.env.example` 補 `DISABLE_EMAIL`**：與 SMTP 設定放一起
+- [ ] **單元測試指令**：README 測試段落加入 `utils/__tests__/financeAuth.test.ts`
+- [ ] **GCP VPN 連 DB**：`server/config/database.ts` 既有 TODO
+
+### P4 — 產品（可晚做）
+
+- [ ] **`jim測試用`**：評估是否改名、移 tab 或僅限特定帳號
+- [ ] **導覽／首頁**：Logo 或 nav 連到 `/tutorial`（`/` 已 redirect 教學中心）
+- [ ] **其他部門上鎖**：`/road-construction` 等若含敏感資料，可沿用 finance auth 模式
+- [ ] **MIS 部門功能**
+- [ ] **管理部門功能**
 
 ## 快速開始
 

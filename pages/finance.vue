@@ -1,29 +1,50 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div v-if="status === 'loading'" class="min-h-screen bg-gray-50 flex items-center justify-center">
+    <p class="text-sm text-gray-500">驗證登入狀態…</p>
+  </div>
+
+  <FinanceLoginCard v-else-if="status === 'guest'" />
+
+  <div v-else class="min-h-screen bg-gray-50">
     <!-- 部門標題 -->
     <div class="bg-white border-b">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div class="flex items-center space-x-3">
-          <div
-            class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"
-          >
-            <svg
-              class="w-5 h-5 text-blue-600"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex items-center space-x-3">
+            <div
+              class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-              ></path>
-            </svg>
+              <svg
+                class="w-5 h-5 text-blue-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                ></path>
+              </svg>
+            </div>
+            <div>
+              <h1 class="text-2xl font-bold text-gray-900">財務部門</h1>
+              <p class="text-gray-600">財務報表管理系統</p>
+            </div>
           </div>
-          <div>
-            <h1 class="text-2xl font-bold text-gray-900">財務部門</h1>
-            <p class="text-gray-600">財務報表管理系統</p>
+
+          <div class="flex items-center gap-3 text-sm">
+            <span class="text-gray-600">
+              已登入：<span class="font-medium text-gray-900">{{ username }}</span>
+            </span>
+            <button
+              type="button"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-50 transition-colors"
+              @click="onLogout"
+            >
+              登出
+            </button>
           </div>
         </div>
       </div>
@@ -205,33 +226,36 @@
 
     <!-- 標籤頁內容 -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <!-- 報表管理 -->
       <FinanceReports v-if="activeTab === 'reports'" />
 
-      <!-- 資料匯入 -->
       <FinanceDataImportTab v-if="activeTab === 'import'" />
 
-      <!-- 網銀付款轉檔 -->
       <FinanceBankConvertTab v-if="activeTab === 'bankConvert'" />
 
-      <!-- 臨時整批匯款 -->
       <FinanceBankAdhocTab v-if="activeTab === 'bankAdhoc'" />
 
-      <!-- 匯款事後登錄 -->
       <FinanceBankWireBackfillTab v-if="activeTab === 'bankBackfill'" />
 
-      <!-- 付款報表事由填補 -->
       <FinancePaymentReasonTab v-if="activeTab === 'fillPaymentReason'" />
     </div>
 
-    <!-- jim測試用 彈出視窗 -->
     <FinanceJimTestModal v-model="showJimTest" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
+
+const { username, status, refresh, logout } = useFinanceAuth();
 
 const activeTab = ref('reports');
 const showJimTest = ref(false);
+
+onMounted(() => {
+  void refresh();
+});
+
+async function onLogout() {
+  await logout();
+}
 </script>
