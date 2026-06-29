@@ -1,22 +1,35 @@
 <template>
   <div class="min-h-screen bg-gray-50">
-    <!-- 簡單的頂部導航 -->
     <nav class="bg-white shadow-sm border-b">
-      <div class="max-w-6xl mx-auto px-4 py-4">
-        <div class="flex justify-between items-center">
+      <div class="max-w-6xl mx-auto px-4 py-3 sm:py-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
           <!-- Logo -->
-          <div class="flex items-center space-x-3">
-            <SaintDongLogo :size="100" variant="blue" />
-            <span class="text-lg font-semibold text-gray-800"
-              >企業管理平台</span
-            >
+          <div class="flex items-center justify-between sm:justify-start sm:space-x-3">
+            <div class="flex items-center space-x-2 sm:space-x-3">
+              <SaintDongLogo :size="72" variant="blue" class="sm:hidden" />
+              <SaintDongLogo :size="100" variant="blue" class="hidden sm:block" />
+              <span class="text-base sm:text-lg font-semibold text-gray-800"
+                >企業管理平台</span
+              >
+            </div>
           </div>
 
           <!-- 部門切換 -->
-          <div class="flex space-x-1">
+          <div class="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1 sm:overflow-visible sm:pb-0">
+            <NuxtLink
+              to="/tutorial"
+              class="shrink-0 px-3 sm:px-4 py-2 rounded-md text-sm font-medium"
+              :class="
+                isActive('/tutorial')
+                  ? 'bg-orange-100 text-orange-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              "
+            >
+              教學中心
+            </NuxtLink>
             <NuxtLink
               to="/road-construction"
-              class="px-4 py-2 rounded-md text-sm font-medium"
+              class="shrink-0 px-3 sm:px-4 py-2 rounded-md text-sm font-medium"
               :class="
                 isActive('/road-construction')
                   ? 'bg-orange-100 text-orange-700'
@@ -27,7 +40,7 @@
             </NuxtLink>
             <NuxtLink
               to="/finance"
-              class="px-4 py-2 rounded-md text-sm font-medium"
+              class="shrink-0 px-3 sm:px-4 py-2 rounded-md text-sm font-medium"
               :class="
                 isActive('/finance')
                   ? 'bg-blue-100 text-blue-700'
@@ -38,7 +51,7 @@
             </NuxtLink>
             <NuxtLink
               to="/hr"
-              class="px-4 py-2 rounded-md text-sm font-medium"
+              class="shrink-0 px-3 sm:px-4 py-2 rounded-md text-sm font-medium"
               :class="
                 isActive('/hr')
                   ? 'bg-green-100 text-green-700'
@@ -49,7 +62,7 @@
             </NuxtLink>
             <NuxtLink
               to="/mis"
-              class="px-4 py-2 rounded-md text-sm font-medium"
+              class="shrink-0 px-3 sm:px-4 py-2 rounded-md text-sm font-medium"
               :class="
                 isActive('/mis')
                   ? 'bg-purple-100 text-purple-700'
@@ -63,12 +76,10 @@
       </div>
     </nav>
 
-    <!-- 主要內容 -->
     <main>
       <slot />
     </main>
 
-    <!-- Toast 通知 -->
     <Toast />
   </div>
 </template>

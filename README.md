@@ -9,8 +9,11 @@
 ```
 saintdong-platform/
 ├── server/            # Nuxt 後端 API (Nitro)
-├── pages/             # 前端頁面
-├── components/        # Vue 組件（含 components/finance/ 財務模組）
+├── pages/             # 前端頁面（含 pages/tutorial/ 教學中心）
+├── components/        # Vue 組件（含 finance/、tutorial/）
+├── composables/       # 共用 composable（含教學影片 seek）
+├── data/tutorials/    # 教學課程靜態資料（每集一檔）
+├── types/             # 共用 TypeScript 型別
 ├── utils/             # 共用工具（含匯款解析、log 顯示）
 └── nuxt.config.ts
 ```
@@ -64,6 +67,24 @@ EMAIL_TO=
 
 ## 功能模組
 
+### 操作教學中心（`/tutorial`）
+
+全公司各部門共用的**圖文 + YouTube 影片**教學，與財務／後端 API 邏輯無關。
+
+| 路由 | 說明 |
+|------|------|
+| `/tutorial` | 教學目錄（依系列分組，顯示上架狀態） |
+| `/tutorial/[slug]` | 單集教學頁（影片嵌入、時間軸跳轉、詳解卡片） |
+
+**目前已上架（COMMEET 通用篇）：**
+
+| 集數 | slug | 主題 |
+|------|------|------|
+| 一 | `commmeet-general-01` | 首次登入與簽核代理人設定 |
+| 二 | `commmeet-general-02` | 三種最常使用表單的介紹 |
+
+新增教學：在 `data/tutorials/` 新增一集資料檔，於 `index.ts` 註冊並設 `status: 'published'`。影片章節時間寫入 `videoChapters` 與 `keyPoints` 的 `videoStartSeconds`。
+
 ### 財務部門（`/finance`）
 
 | 功能 | 說明 |
@@ -79,6 +100,7 @@ EMAIL_TO=
 
 ### 未來擴展
 
+- COMMEET 通用篇其餘集數（三～六）、財會篇教學
 - MIS 部門功能
 - 管理部門功能
 
