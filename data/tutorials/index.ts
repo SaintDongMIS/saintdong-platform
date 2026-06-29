@@ -1,6 +1,9 @@
 import type { TutorialLesson, TutorialSeries } from '~/types/tutorial';
 import { commmeetGeneral01 } from './commmeet-general-01';
 import { commmeetGeneral02 } from './commmeet-general-02';
+import { commmeetGeneral03 } from './commmeet-general-03';
+import { commmeetGeneral05 } from './commmeet-general-05';
+import { commmeetGeneral06 } from './commmeet-general-06';
 
 const comingSoon = (partial: Omit<TutorialLesson, 'status' | 'keyPoints'> & { keyPoints?: TutorialLesson['keyPoints'] }): TutorialLesson => ({
   keyPoints: [],
@@ -11,41 +14,9 @@ const comingSoon = (partial: Omit<TutorialLesson, 'status' | 'keyPoints'> & { ke
 export const tutorialLessons: TutorialLesson[] = [
   commmeetGeneral01,
   commmeetGeneral02,
-  comingSoon({
-    slug: 'commmeet-general-03',
-    seriesId: 'commmeet-general',
-    episode: 3,
-    title: '費用申請單與費用報銷單',
-    subtitle: 'COMMEET 系統操作教學 通用篇（三）',
-    description: '深入操作費用申請單與費用報銷單的填寫與勾稽流程。',
-    audience: ['all'],
-    estimatedMinutes: 8,
-    prevSlug: 'commmeet-general-02',
-    nextSlug: 'commmeet-general-05',
-  }),
-  comingSoon({
-    slug: 'commmeet-general-05',
-    seriesId: 'commmeet-general',
-    episode: 5,
-    title: '手機與電腦申請費用報銷單',
-    subtitle: 'COMMEET 系統操作教學 通用篇（五）',
-    description: '跨裝置申請費用報銷單的操作示範。',
-    audience: ['all'],
-    estimatedMinutes: 5,
-    prevSlug: 'commmeet-general-03',
-    nextSlug: 'commmeet-general-06',
-  }),
-  comingSoon({
-    slug: 'commmeet-general-06',
-    seriesId: 'commmeet-general',
-    episode: 6,
-    title: '手機與電腦簽核單據',
-    subtitle: 'COMMEET 系統操作教學 通用篇（六）',
-    description: '在手機與電腦上簽核單據的操作方式。',
-    audience: ['all'],
-    estimatedMinutes: 6,
-    prevSlug: 'commmeet-general-05',
-  }),
+  commmeetGeneral03,
+  commmeetGeneral05,
+  commmeetGeneral06,
   comingSoon({
     slug: 'commmeet-finance-02',
     seriesId: 'commmeet-finance',

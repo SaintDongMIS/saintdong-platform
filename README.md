@@ -76,14 +76,32 @@ EMAIL_TO=
 | `/tutorial` | 教學目錄（依系列分組，顯示上架狀態） |
 | `/tutorial/[slug]` | 單集教學頁（影片嵌入、時間軸跳轉、詳解卡片） |
 
-**目前已上架（COMMEET 通用篇）：**
+**COMMEET 通用篇（已上架 5 集）：**
 
 | 集數 | slug | 主題 |
 |------|------|------|
 | 一 | `commmeet-general-01` | 首次登入與簽核代理人設定 |
 | 二 | `commmeet-general-02` | 三種最常使用表單的介紹 |
+| 三 | `commmeet-general-03` | 費用申請單與費用報銷單 |
+| 五 | `commmeet-general-05` | 手機與電腦申請費用報銷單 |
+| 六 | `commmeet-general-06` | 手機與電腦簽核單據 |
 
-新增教學：在 `data/tutorials/` 新增一集資料檔，於 `index.ts` 註冊並設 `status: 'published'`。影片章節時間寫入 `videoChapters` 與 `keyPoints` 的 `videoStartSeconds`。
+> 官方播放清單另有「通用篇（四）」，本站系列尚未納入。
+
+**待上架：**
+
+| 系列 | slug | 主題 |
+|------|------|------|
+| 財會篇（二） | `commmeet-finance-02` | 付款報表 |
+
+**新增一集教學：**
+
+1. 在 `data/tutorials/` 新增 `commmeet-{series}-{episode}.ts`
+2. 於 `data/tutorials/index.ts` import 並加入 `tutorialLessons`、對應 `tutorialSeries.lessons`
+3. 設 `status: 'published'`，填寫 `video`、`videoChapters`、`keyPoints`、`forms`
+4. 影片章節時間寫入 `videoChapters.startSeconds` 與 `keyPoints.videoStartSeconds`；**須逐秒對照影片**（下載後 `ffmpeg -vf fps=1` 抽幀），勿粗估間隔
+
+資料檔範例：`data/tutorials/commmeet-general-06.ts`
 
 ### 財務部門（`/finance`）
 
@@ -100,7 +118,8 @@ EMAIL_TO=
 
 ### 未來擴展
 
-- COMMEET 通用篇其餘集數（三～六）、財會篇教學
+- COMMEET 財會篇（二）付款報表
+- COMMEET 通用篇（四）（待評估是否納入系列）
 - MIS 部門功能
 - 管理部門功能
 

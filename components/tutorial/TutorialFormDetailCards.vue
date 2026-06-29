@@ -106,53 +106,45 @@ function toggle(index: number) {
         class="overflow-hidden rounded-2xl border bg-white shadow-sm transition-shadow hover:shadow-md"
         :class="accentMap[form.accent].border"
       >
-        <button
-          type="button"
-          class="flex w-full items-start gap-4 p-5 text-left sm:p-6"
-          @click="toggle(index)"
-        >
-          <div
-            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ring-4"
-            :class="[accentMap[form.accent].bg, accentMap[form.accent].ring]"
+        <div class="flex items-start gap-3 p-5 sm:gap-4 sm:p-6">
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 items-start gap-4 text-left"
+            @click="toggle(index)"
           >
-            <svg
-              v-if="formIcons.includes(form.icon)"
-              class="h-6 w-6"
-              :class="accentMap[form.accent].icon"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+            <div
+              class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ring-4"
+              :class="[accentMap[form.accent].bg, accentMap[form.accent].ring]"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.75"
-                :d="iconPaths[form.icon]"
-              />
-            </svg>
-            <span
-              v-else
-              class="font-mono text-sm font-bold"
-              :class="accentMap[form.accent].badge.split(' ')[1]"
-            >
-              {{ form.code }}
-            </span>
-          </div>
+              <svg
+                v-if="formIcons.includes(form.icon)"
+                class="h-6 w-6"
+                :class="accentMap[form.accent].icon"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.75"
+                  :d="iconPaths[form.icon]"
+                />
+              </svg>
+              <span
+                v-else
+                class="font-mono text-sm font-bold"
+                :class="accentMap[form.accent].badge.split(' ')[1]"
+              >
+                {{ form.code }}
+              </span>
+            </div>
 
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center justify-between gap-3">
-              <h3 class="text-lg font-semibold text-slate-900">
-                {{ form.name }}
-              </h3>
-              <div class="flex items-center gap-2">
-                <button
-                  v-if="chapterForForm(form)"
-                  type="button"
-                  class="hidden shrink-0 items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-800 hover:bg-orange-200 sm:inline-flex"
-                  @click="watchInVideo(form, $event)"
-                >
-                  ▶ {{ formatVideoTime(chapterForForm(form)!.startSeconds) }}
-                </button>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="text-lg font-semibold text-slate-900">
+                  {{ form.name }}
+                </h3>
                 <svg
                   class="h-5 w-5 shrink-0 text-slate-400 transition-transform duration-300"
                   :class="{ 'rotate-180': expandedIndex === index }"
@@ -168,77 +160,77 @@ function toggle(index: number) {
                   />
                 </svg>
               </div>
+              <p class="mt-1 text-sm font-medium text-slate-600">
+                {{ form.tagline }}
+              </p>
             </div>
-            <p class="mt-1 text-sm font-medium text-slate-600">
-              {{ form.tagline }}
-            </p>
-          </div>
-        </button>
+          </button>
 
-        <Transition
-          enter-active-class="transition-all duration-300 ease-out"
-          enter-from-class="opacity-0 max-h-0"
-          enter-to-class="opacity-100 max-h-[600px]"
-          leave-active-class="transition-all duration-200 ease-in"
-          leave-from-class="opacity-100 max-h-[600px]"
-          leave-to-class="opacity-0 max-h-0"
-        >
-          <div
-            v-show="expandedIndex === index"
-            class="overflow-hidden border-t px-5 pb-5 sm:px-6 sm:pb-6"
-            :class="accentMap[form.accent].border"
+          <button
+            v-if="chapterForForm(form)"
+            type="button"
+            class="hidden shrink-0 items-center gap-1 self-start rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-800 hover:bg-orange-200 sm:inline-flex"
+            @click="watchInVideo(form, $event)"
           >
-            <p class="mt-4 text-slate-700">{{ form.whenToUse }}</p>
+            ▶ {{ formatVideoTime(chapterForForm(form)!.startSeconds) }}
+          </button>
+        </div>
 
-            <button
-              v-if="chapterForForm(form)"
-              type="button"
-              class="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 sm:hidden"
-              @click="watchInVideo(form, $event)"
-            >
-              ▶ 跳至影片 {{ formatVideoTime(chapterForForm(form)!.startSeconds) }}
-            </button>
+        <div
+          v-show="expandedIndex === index"
+          class="border-t px-5 pb-5 sm:px-6 sm:pb-6"
+          :class="accentMap[form.accent].border"
+        >
+          <p class="mt-4 text-slate-700">{{ form.whenToUse }}</p>
 
-            <div class="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <h4 class="mb-2 text-sm font-semibold text-slate-900">
-                  常見情境
-                </h4>
-                <ul class="space-y-2">
-                  <li
-                    v-for="scenario in form.scenarios"
-                    :key="scenario"
-                    class="flex items-start gap-2 text-sm text-slate-600"
-                  >
-                    <span
-                      class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                      :class="accentMap[form.accent].dot"
-                    />
-                    {{ scenario }}
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 class="mb-2 text-sm font-semibold text-slate-900">
-                  重點提醒
-                </h4>
-                <ul class="space-y-2">
-                  <li
-                    v-for="highlight in form.highlights"
-                    :key="highlight"
-                    class="flex items-start gap-2 text-sm text-slate-600"
-                  >
-                    <span
-                      class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                      :class="accentMap[form.accent].dot"
-                    />
-                    {{ highlight }}
-                  </li>
-                </ul>
-              </div>
+          <button
+            v-if="chapterForForm(form)"
+            type="button"
+            class="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 sm:hidden"
+            @click="watchInVideo(form, $event)"
+          >
+            ▶ 跳至影片 {{ formatVideoTime(chapterForForm(form)!.startSeconds) }}
+          </button>
+
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <h4 class="mb-2 text-sm font-semibold text-slate-900">
+                常見情境
+              </h4>
+              <ul class="space-y-2">
+                <li
+                  v-for="scenario in form.scenarios"
+                  :key="scenario"
+                  class="flex items-start gap-2 text-sm text-slate-600"
+                >
+                  <span
+                    class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                    :class="accentMap[form.accent].dot"
+                  />
+                  {{ scenario }}
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h4 class="mb-2 text-sm font-semibold text-slate-900">
+                重點提醒
+              </h4>
+              <ul class="space-y-2">
+                <li
+                  v-for="highlight in form.highlights"
+                  :key="highlight"
+                  class="flex items-start gap-2 text-sm text-slate-600"
+                >
+                  <span
+                    class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                    :class="accentMap[form.accent].dot"
+                  />
+                  {{ highlight }}
+                </li>
+              </ul>
             </div>
           </div>
-        </Transition>
+        </div>
       </article>
     </div>
   </section>
