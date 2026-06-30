@@ -6,8 +6,7 @@
           <!-- Logo -->
           <div class="flex items-center justify-between sm:justify-start sm:space-x-3">
             <div class="flex items-center space-x-2 sm:space-x-3">
-              <SaintDongLogo :size="72" variant="blue" class="sm:hidden" />
-              <SaintDongLogo :size="100" variant="blue" class="hidden sm:block" />
+              <SaintDongLogo :size="88" variant="blue" />
               <span class="text-base sm:text-lg font-semibold text-gray-800"
                 >企業管理平台</span
               >

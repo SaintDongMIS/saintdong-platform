@@ -95,6 +95,10 @@ const publishedCount = getPublishedLessons().length;
           </NuxtLink>
         </div>
       </section>
+
+      <div class="max-w-md pb-4">
+        <TutorialAppStoreBadges />
+      </div>
     </main>
   </div>
 </template>

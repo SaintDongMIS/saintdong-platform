@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { TutorialFormGuide, TutorialTopicIcon, TutorialVideoChapter } from '~/types/tutorial';
 import { formatVideoTime } from '~/utils/formatVideoTime';
+import TutorialCommmeetAppUrlMockup from '~/components/tutorial/TutorialCommmeetAppUrlMockup.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -182,6 +183,22 @@ function toggle(index: number) {
           :class="accentMap[form.accent].border"
         >
           <p class="mt-4 text-slate-700">{{ form.whenToUse }}</p>
+
+          <figure
+            v-if="form.mockup"
+            class="mt-5 flex flex-col items-center rounded-2xl border border-violet-100 bg-violet-50/40 px-4 py-5"
+          >
+            <TutorialCommmeetAppUrlMockup
+              v-if="form.mockup === 'commmeet-app-url'"
+              :company-url="form.mockupProps?.companyUrl"
+            />
+            <figcaption
+              v-if="form.mockupCaption"
+              class="mt-2 max-w-xs text-center text-xs text-slate-500"
+            >
+              {{ form.mockupCaption }}
+            </figcaption>
+          </figure>
 
           <button
             v-if="chapterForForm(form)"

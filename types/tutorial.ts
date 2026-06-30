@@ -47,6 +47,13 @@ export interface TutorialFormGuide {
   icon: TutorialTopicIcon;
   /** 對應 videoChapters.id，用於非表單代碼的教學段落 */
   videoChapterId?: string;
+  /** 內建 UI 示意（免圖檔） */
+  mockup?: 'commmeet-app-url';
+  mockupCaption?: string;
+  /** mockup 專用參數 */
+  mockupProps?: {
+    companyUrl?: string;
+  };
 }
 
 export interface TutorialFlowStep {

@@ -36,7 +36,7 @@ export const commmeetGeneral05: TutorialLesson = {
       order: 1,
       title: '手機 App 操作界面',
       summary:
-        '設定生物辨識快速登入，並從主頁表單申請入口進入費用報銷。',
+        '輸入企業網址登入 App，設定生物辨識，並從主頁表單申請入口進入費用報銷。',
       icon: 'navigation',
       videoStartSeconds: 36,
       videoChapterId: 'mobile-app',
@@ -70,6 +70,7 @@ export const commmeetGeneral05: TutorialLesson = {
       whenToUse:
         '出差、外勤或收到發票當下，先用手機 App 快速登入並建立報銷草稿。',
       scenarios: [
+        '首次開啟 App，輸入企業網址（如 bimgroup.commeet.co）後進入',
         '於設定開啟生物辨識（Face ID／指紋）加速登入',
         '從主頁「表單申請」選擇費用報銷單',
         '填寫費用歸屬等基本欄位後進入明細步驟',
@@ -82,6 +83,9 @@ export const commmeetGeneral05: TutorialLesson = {
       accent: 'violet',
       icon: 'navigation',
       videoChapterId: 'mobile-app',
+      mockup: 'commmeet-app-url',
+      mockupCaption: '請輸入你的企業網址，點右側箭頭進入',
+      mockupProps: { companyUrl: 'bimgroup.commeet.co' },
     },
     {
       code: 'ER',

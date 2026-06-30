@@ -117,6 +117,10 @@ useHead({
       </section>
 
       <TutorialLessonNav :lesson="currentLesson" />
+
+      <TutorialAppStoreBadges
+        v-if="currentLesson.seriesId.startsWith('commmeet-')"
+      />
     </div>
   </article>
 </template>
