@@ -122,6 +122,43 @@ FINANCE_SESSION_SECRET=your_random_session_secret_here
 
 三條匯款管道（Commeet／臨時／事後登錄）皆寫入同一張 **`BankWireExport_Log`**；財務各 tab 共用「匯款匯出紀錄」面板（類型篩選、搜尋、交易日等）。
 
+### COMMEET 供應商同步（Payee_Accounts → COMMEET）
+
+**2026-06 一次性作業，已完成。** 將 DB `Payee_Accounts`（789 筆）比對並同步至 COMMEET 供應商管理。腳本保留在 `scripts/commeet-reconcile/` 供查閱，**同事日常不需再跑**；新增供應商請直接在 COMMEET 操作。
+
+#### 做了什麼
+
+- **113 筆** 帳號已在 COMMEET，未動。
+- **490 家** 新公司匯入 COMMEET（廠商代號 SD001 起）。
+- **68 筆** 既有公司補齊或修正匯款帳號（含分行、戶名等缺漏欄位）。
+- **104 筆** 個人戶名依規則不匯；部分後來改為啟用（如許芳瑛、邱炫嘉等）。
+- COMMEET 供應商由約 247 家增至約 737 家。
+
+#### 尚未完成（需人工）
+
+| 項目 | 說明 |
+|------|------|
+| 匯款帳號 11 筆 | 聖東營造、富邦產物：COMMEET 每家最多 5 個帳戶，須刪舊帳後再補 |
+| 統編待補 | 見同目錄 `tax-lookup-missed.csv` |
+| 個人戶名清單 | 見 `skipped-personal.csv`（多數刻意不匯） |
+
+#### 腳本（備查，非日常流程）
+
+| 腳本 | 說明 |
+|------|------|
+| `_run-readonly-once.mjs` | 比對 DB 與 COMMEET（只讀） |
+| `import-c-via-api.mjs` | 批次新建供應商 |
+| `add-b-via-api.mjs` | 補齊／修正台幣帳號 |
+| `disable-personal-suppliers.mjs` | 停用或啟用供應商（`--enable --codes SDxxx`） |
+
+偶發維護範例：
+
+```bash
+node scripts/commeet-reconcile/disable-personal-suppliers.mjs --enable --codes SD047,SD132
+```
+
+需 `.env`：`COMMEET_EMAIL`、`COMMEET_PASSWORD`、`COMMEET_LOGIN_URL` 及 DB 連線。
+
 ## TODO（依優先度）
 
 ### P0 — 維運／上線
